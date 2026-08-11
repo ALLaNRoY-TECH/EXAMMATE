@@ -91,21 +91,31 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     setIsLoadingGroups(true);
     try {
+      console.log('[GroupDebug] auth user id:', user.id);
+
       // STEP 1: Query membership rows for the authenticated user
       const { data: memberRows, error: memberErr } = await supabase
         .from('group_members')
         .select('group_id, role')
         .eq('user_id', user.id);
 
-      if (memberErr) throw memberErr;
+      console.log('[GroupDebug] group_members response:', memberRows, 'error:', memberErr);
+
+      if (memberErr) {
+        console.error('[GroupDebug] ERROR fetching group_members:', memberErr);
+        throw memberErr;
+      }
 
       if (!memberRows || memberRows.length === 0) {
+        console.log('[GroupDebug] No memberships found for user_id:', user.id);
         setUserGroups([]);
         setActiveGroupState(null);
+        localStorage.removeItem(`exammate_active_group_id_${user.id}`);
         return [];
       }
 
       const groupIds = memberRows.map((r: any) => r.group_id);
+      console.log('[GroupDebug] group ids:', groupIds);
 
       // STEP 2: Query groups table for those group_ids
       const { data: groupRows, error: groupErr } = await supabase
@@ -113,7 +123,12 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         .select('*')
         .in('id', groupIds);
 
-      if (groupErr) throw groupErr;
+      console.log('[GroupDebug] groups response:', groupRows, 'error:', groupErr);
+
+      if (groupErr) {
+        console.error('[GroupDebug] ERROR fetching groups:', groupErr);
+        throw groupErr;
+      }
 
       const roleMap = new Map(memberRows.map((r: any) => [r.group_id, r.role]));
 
@@ -127,25 +142,29 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         invite_code: g.invite_code,
         created_by: g.created_by,
         created_at: g.created_at,
-        role: roleMap.get(g.id) || 'member',
+        role: roleMap.get(g.id) || (g.created_by === user.id ? 'admin' : 'member'),
       }));
 
+      console.log('[GroupDebug] final userGroups:', fetchedGroups);
       setUserGroups(fetchedGroups);
 
       const savedActiveId = localStorage.getItem(`exammate_active_group_id_${user.id}`);
-      const foundActive = fetchedGroups.find((g) => g.id === savedActiveId);
+      console.log('[GroupDebug] stored active group id:', savedActiveId);
 
-      setActiveGroupState((prev) => {
-        if (prev) {
-          const updatedActive = fetchedGroups.find((g) => g.id === prev.id);
-          return updatedActive || foundActive || fetchedGroups[0] || null;
-        }
-        return foundActive || fetchedGroups[0] || null;
-      });
+      const matchedActive = fetchedGroups.find((g) => g.id === savedActiveId) || fetchedGroups[0] || null;
+      console.log('[GroupDebug] resolved activeGroup:', matchedActive);
+
+      setActiveGroupState(matchedActive);
+
+      if (matchedActive) {
+        localStorage.setItem(`exammate_active_group_id_${user.id}`, matchedActive.id);
+      } else {
+        localStorage.removeItem(`exammate_active_group_id_${user.id}`);
+      }
 
       return fetchedGroups;
     } catch (err: any) {
-      console.error('Error fetching user groups:', err.message);
+      console.error('[GroupDebug] EXCEPTION in fetchUserGroups:', err);
       return [];
     } finally {
       setIsLoadingGroups(false);
@@ -341,27 +360,49 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
 
     try {
+      console.log('[GroupDebug] getGroupMembers target group_id:', groupId);
+
       // STEP 1: Query group members
       const { data: memberRows, error: memberErr } = await supabase
         .from('group_members')
         .select('id, group_id, user_id, role, joined_at')
         .eq('group_id', groupId);
 
-      if (memberErr) throw memberErr;
-      if (!memberRows || memberRows.length === 0) return { members: [] };
+      console.log('[GroupDebug] roster group_members response:', memberRows, 'error:', memberErr);
+
+      if (memberErr) {
+        console.error('[GroupDebug] ERROR in getGroupMembers member query:', memberErr);
+        return { members: [], error: memberErr.message };
+      }
+
+      if (!memberRows || memberRows.length === 0) {
+        console.log('[GroupDebug] Zero members returned for group_id:', groupId);
+        return { members: [] };
+      }
 
       const userIds = memberRows.map((m: any) => m.user_id);
+      console.log('[GroupDebug] roster userIds:', userIds);
 
       // STEP 2: Query profiles for member user IDs
-      const { data: profileRows, error: profileErr } = await supabase
-        .from('profiles')
-        .select('id, name, email, avatar_url, created_at')
-        .in('id', userIds);
+      let profileMap = new Map();
+      try {
+        const { data: profileRows, error: profileErr } = await supabase
+          .from('profiles')
+          .select('id, name, email, avatar_url, created_at')
+          .in('id', userIds);
 
-      if (profileErr) throw profileErr;
+        console.log('[GroupDebug] roster profiles response:', profileRows, 'error:', profileErr);
 
-      const profileMap = new Map((profileRows || []).map((p: any) => [p.id, p]));
+        if (profileErr) {
+          console.warn('[GroupDebug] WARNING profile fetch error:', profileErr.message);
+        } else if (profileRows) {
+          profileMap = new Map(profileRows.map((p: any) => [p.id, p]));
+        }
+      } catch (pErr: any) {
+        console.warn('[GroupDebug] Profile fetch exception:', pErr.message);
+      }
 
+      // STEP 3: Combine membership rows with profiles (NEVER dropping members)
       const members: GroupMember[] = memberRows.map((item: any) => ({
         id: item.id,
         group_id: item.group_id,
@@ -376,8 +417,10 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         },
       }));
 
+      console.log('[GroupDebug] final roster members:', members);
       return { members };
     } catch (err: any) {
+      console.error('[GroupDebug] EXCEPTION in getGroupMembers:', err);
       return { members: [], error: err.message || 'Failed to fetch members' };
     }
   };

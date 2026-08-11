@@ -354,7 +354,7 @@ CREATE POLICY "Groups read policy"
   ON public.groups FOR SELECT
   TO authenticated
   USING (
-    public.is_group_member(id)
+    created_by = auth.uid() OR public.is_group_member(id)
   );
 
 DROP POLICY IF EXISTS "Groups update policy" ON public.groups;
