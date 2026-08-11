@@ -450,9 +450,22 @@ CREATE POLICY "Exams delete policy"
   );
 
 -- --------------------------------------------------------------------
--- 10. REALTIME PUBLICATION SETUP
+-- 10. REALTIME PUBLICATION SETUP (IDEMPOTENT)
 -- --------------------------------------------------------------------
-ALTER PUBLICATION supabase_realtime ADD TABLE public.groups, public.group_members, public.exams;
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
+    IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'groups') THEN
+      ALTER PUBLICATION supabase_realtime ADD TABLE public.groups;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'group_members') THEN
+      ALTER PUBLICATION supabase_realtime ADD TABLE public.group_members;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'exams') THEN
+      ALTER PUBLICATION supabase_realtime ADD TABLE public.exams;
+    END IF;
+  END IF;
+END $$;
 
 -- --------------------------------------------------------------------
 -- 11. RESET UTILITY (RUN IN SUPABASE SQL EDITOR TO RESET ALL GROUPS & EXAMS)

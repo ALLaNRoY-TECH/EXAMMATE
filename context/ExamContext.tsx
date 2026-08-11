@@ -98,13 +98,51 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       .on(
         'postgres_changes',
         {
-          event: '*',
+          event: 'INSERT',
           schema: 'public',
           table: 'exams',
           filter: `group_id=eq.${activeGroup.id}`,
         },
-        () => {
-          fetchGroupExams();
+        (payload) => {
+          if (payload.new) {
+            const newExam = mapRowToExam(payload.new);
+            setExams((prev) => {
+              if (prev.some((e) => e.id === newExam.id)) return prev;
+              return [newExam, ...prev];
+            });
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'exams',
+          filter: `group_id=eq.${activeGroup.id}`,
+        },
+        (payload) => {
+          if (payload.new) {
+            const updatedExam = mapRowToExam(payload.new);
+            setExams((prev) => prev.map((e) => (e.id === updatedExam.id ? updatedExam : e)));
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'DELETE',
+          schema: 'public',
+          table: 'exams',
+          filter: `group_id=eq.${activeGroup.id}`,
+        },
+        (payload) => {
+          const deletedId = payload.old?.id;
+          if (deletedId) {
+            setExams((prev) => prev.filter((e) => e.id !== deletedId));
+          } else {
+            fetchGroupExams();
+          }
         }
       )
       .subscribe();
@@ -156,7 +194,10 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (error) throw error;
 
       const created = mapRowToExam(data);
-      setExams((prev) => [created, ...prev.filter((e) => !e.id.startsWith('dummy-'))]);
+      setExams((prev) => {
+        if (prev.some((e) => e.id === created.id)) return prev;
+        return [created, ...prev];
+      });
       return { exam: created };
     } catch (err: any) {
       return { error: err.message || 'Failed to save exam' };
