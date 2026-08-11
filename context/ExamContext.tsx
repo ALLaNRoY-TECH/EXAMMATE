@@ -53,13 +53,14 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const fetchGroupExams = async () => {
     if (!configured || !user || !activeGroup) {
-      // Local fallback preview exams
       setExams(INITIAL_EXAMS);
       setIsLoadingExams(false);
       return;
     }
 
     setIsLoadingExams(true);
+    setExams([]); // Clear previous group exams immediately during transition
+
     try {
       const { data, error } = await supabase
         .from('exams')
@@ -70,11 +71,11 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (error) throw error;
 
       if (data) {
-        const fetched = data.map(mapRowToExam);
-        setExams(fetched.length > 0 ? fetched : INITIAL_EXAMS);
+        setExams(data.map(mapRowToExam));
       }
     } catch (err: any) {
       console.error('Error fetching group exams:', err.message);
+      setExams([]);
     } finally {
       setIsLoadingExams(false);
     }

@@ -64,17 +64,17 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
-  const fetchUserGroups = async () => {
+  const fetchUserGroups = async (): Promise<Group[]> => {
     if (isAuthLoading) {
       setIsLoadingGroups(true);
-      return;
+      return [];
     }
 
     if (!user) {
       setUserGroups([]);
       setActiveGroupState(null);
       setIsLoadingGroups(false);
-      return;
+      return [];
     }
 
     if (!configured) {
@@ -86,42 +86,67 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const foundActive = groupsList.find((g: Group) => g.id === savedActiveId);
       setActiveGroupState(foundActive || groupsList[0] || null);
       setIsLoadingGroups(false);
-      return;
+      return groupsList;
     }
 
     setIsLoadingGroups(true);
     try {
-      // Query groups user is a member of
+      // STEP 1: Query membership rows for the authenticated user
       const { data: memberRows, error: memberErr } = await supabase
         .from('group_members')
-        .select('group_id, role, groups(*)')
+        .select('group_id, role')
         .eq('user_id', user.id);
 
       if (memberErr) throw memberErr;
 
-      if (memberRows) {
-        const fetchedGroups: Group[] = memberRows
-          .filter((row: any) => row.groups)
-          .map((row: any) => ({
-            ...row.groups,
-            role: row.role,
-          }));
-
-        setUserGroups(fetchedGroups);
-
-        const savedActiveId = localStorage.getItem(`exammate_active_group_id_${user.id}`);
-        const foundActive = fetchedGroups.find((g) => g.id === savedActiveId);
-
-        setActiveGroupState((prev) => {
-          if (prev) {
-            const updatedActive = fetchedGroups.find((g) => g.id === prev.id);
-            return updatedActive || foundActive || fetchedGroups[0] || null;
-          }
-          return foundActive || fetchedGroups[0] || null;
-        });
+      if (!memberRows || memberRows.length === 0) {
+        setUserGroups([]);
+        setActiveGroupState(null);
+        return [];
       }
+
+      const groupIds = memberRows.map((r: any) => r.group_id);
+
+      // STEP 2: Query groups table for those group_ids
+      const { data: groupRows, error: groupErr } = await supabase
+        .from('groups')
+        .select('*')
+        .in('id', groupIds);
+
+      if (groupErr) throw groupErr;
+
+      const roleMap = new Map(memberRows.map((r: any) => [r.group_id, r.role]));
+
+      const fetchedGroups: Group[] = (groupRows || []).map((g: any) => ({
+        id: g.id,
+        name: g.name,
+        college: g.college,
+        course: g.course,
+        year: g.year,
+        section: g.section,
+        invite_code: g.invite_code,
+        created_by: g.created_by,
+        created_at: g.created_at,
+        role: roleMap.get(g.id) || 'member',
+      }));
+
+      setUserGroups(fetchedGroups);
+
+      const savedActiveId = localStorage.getItem(`exammate_active_group_id_${user.id}`);
+      const foundActive = fetchedGroups.find((g) => g.id === savedActiveId);
+
+      setActiveGroupState((prev) => {
+        if (prev) {
+          const updatedActive = fetchedGroups.find((g) => g.id === prev.id);
+          return updatedActive || foundActive || fetchedGroups[0] || null;
+        }
+        return foundActive || fetchedGroups[0] || null;
+      });
+
+      return fetchedGroups;
     } catch (err: any) {
       console.error('Error fetching user groups:', err.message);
+      return [];
     } finally {
       setIsLoadingGroups(false);
     }
@@ -169,9 +194,10 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (error) throw error;
 
       const createdGroup = data as Group;
-      await fetchUserGroups();
-      setActiveGroup(createdGroup);
-      return { group: createdGroup };
+      const freshGroups = await fetchUserGroups();
+      const foundCreated = freshGroups.find((g) => g.id === createdGroup.id) || createdGroup;
+      setActiveGroup(foundCreated);
+      return { group: foundCreated };
     } catch (err: any) {
       return { error: err.message || 'Failed to create group' };
     }
@@ -201,12 +227,23 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         p_invite_code: inviteCode,
       });
 
-      if (error) throw error;
+      if (error) {
+        if (error.message.includes('already a member')) {
+          const freshGroups = await fetchUserGroups();
+          const existing = freshGroups.find((g) => g.invite_code.toUpperCase() === inviteCode.trim().toUpperCase());
+          if (existing) {
+            setActiveGroup(existing);
+          }
+          return { group: existing, error: 'You are already a member of this group' };
+        }
+        throw error;
+      }
 
       const joinedGroup = data as Group;
-      await fetchUserGroups();
-      setActiveGroup(joinedGroup);
-      return { group: joinedGroup };
+      const freshGroups = await fetchUserGroups();
+      const foundJoined = freshGroups.find((g) => g.id === joinedGroup.id) || joinedGroup;
+      setActiveGroup(foundJoined);
+      return { group: foundJoined };
     } catch (err: any) {
       return { error: err.message || 'Failed to join group' };
     }
@@ -268,7 +305,7 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
-  // Fetch Group Members
+  // Fetch Group Members (2-Step Query for absolute reliability)
   const getGroupMembers = async (groupId: string) => {
     if (!configured) {
       return {
@@ -304,20 +341,39 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
 
     try {
-      const { data, error } = await supabase
+      // STEP 1: Query group members
+      const { data: memberRows, error: memberErr } = await supabase
         .from('group_members')
-        .select('id, group_id, user_id, role, joined_at, profiles(id, name, email, avatar_url, created_at)')
+        .select('id, group_id, user_id, role, joined_at')
         .eq('group_id', groupId);
 
-      if (error) throw error;
+      if (memberErr) throw memberErr;
+      if (!memberRows || memberRows.length === 0) return { members: [] };
 
-      const members: GroupMember[] = (data || []).map((item: any) => ({
+      const userIds = memberRows.map((m: any) => m.user_id);
+
+      // STEP 2: Query profiles for member user IDs
+      const { data: profileRows, error: profileErr } = await supabase
+        .from('profiles')
+        .select('id, name, email, avatar_url, created_at')
+        .in('id', userIds);
+
+      if (profileErr) throw profileErr;
+
+      const profileMap = new Map((profileRows || []).map((p: any) => [p.id, p]));
+
+      const members: GroupMember[] = memberRows.map((item: any) => ({
         id: item.id,
         group_id: item.group_id,
         user_id: item.user_id,
         role: item.role,
         joined_at: item.joined_at,
-        profile: item.profiles,
+        profile: profileMap.get(item.user_id) || {
+          id: item.user_id,
+          name: 'Student',
+          email: '',
+          created_at: item.joined_at,
+        },
       }));
 
       return { members };
@@ -338,7 +394,7 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         leaveGroup,
         removeMember,
         getGroupMembers,
-        refreshGroups: fetchUserGroups,
+        refreshGroups: async () => { await fetchUserGroups(); },
       }}
     >
       {children}

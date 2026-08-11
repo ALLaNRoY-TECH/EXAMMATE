@@ -375,7 +375,7 @@ CREATE POLICY "Group members read policy"
   ON public.group_members FOR SELECT
   TO authenticated
   USING (
-    public.is_group_member(group_id)
+    user_id = auth.uid() OR public.is_group_member(group_id)
   );
 
 DROP POLICY IF EXISTS "Group members delete policy" ON public.group_members;
