@@ -449,3 +449,8 @@ CREATE POLICY "Exams delete policy"
     created_by = auth.uid() OR public.is_group_admin(group_id)
   );
 
+-- --------------------------------------------------------------------
+-- 10. RESET UTILITY (RUN IN SUPABASE SQL EDITOR TO RESET ALL GROUPS & EXAMS)
+-- --------------------------------------------------------------------
+-- TRUNCATE TABLE public.exams, public.group_members, public.groups CASCADE;
+
