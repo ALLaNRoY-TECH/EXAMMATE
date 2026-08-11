@@ -98,43 +98,51 @@ function AppContent() {
 
   if (!isAuthLoading && !isLoading && !user) {
     return (
-      <div className="min-h-screen bg-[#050508] bg-grid-pattern text-white flex items-center justify-center p-4">
+      <div className="min-h-screen bg-[#050508] bg-grid-pattern text-white flex items-center justify-center p-4 sm:p-6 font-sans">
         <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="w-full max-w-md p-8 rounded-3xl bg-[#0b0d13] border border-white/10 text-center space-y-6 shadow-2xl"
+          initial={{ opacity: 0, y: 20, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ duration: 0.3, ease: 'easeOut' }}
+          className="relative overflow-hidden w-full max-w-md p-8 sm:p-10 rounded-3xl bg-[#0b0d13] border border-white/10 text-center space-y-7 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.9)] backdrop-blur-xl"
         >
-          <div className="inline-flex w-12 h-12 rounded-2xl bg-white text-black font-black text-2xl items-center justify-center shadow-glow mb-1">
+          {/* Ambient Glow Accents */}
+          <div className="absolute -top-24 -left-24 w-48 h-48 bg-white/5 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute -bottom-24 -right-24 w-48 h-48 bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
+
+          {/* Logo Badge */}
+          <div className="relative inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-white text-black font-black text-2xl shadow-[0_0_30px_rgba(255,255,255,0.25)] border border-white/80 mx-auto">
             E
           </div>
-          <div className="space-y-2">
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+
+          {/* Typography Header */}
+          <div className="space-y-2 relative">
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight leading-tight">
               Welcome to ExamMate
             </h1>
-            <p className="text-xs font-mono text-neutral-400">
+            <p className="text-xs sm:text-sm font-mono text-neutral-400">
               Never ask &quot;When&apos;s the exam?&quot; again.
             </p>
           </div>
 
+          {/* Auth Error Notification */}
           {authError && (
-            <div className="p-3 rounded-xl bg-red-950/40 border border-red-500/20 text-red-300 text-xs text-left">
+            <div className="p-3.5 rounded-xl bg-red-950/50 border border-red-500/30 text-red-300 text-xs font-mono text-left">
               {authError}
             </div>
           )}
 
-          <Button
+          {/* Premium Google Button */}
+          <button
             type="button"
-            variant="primary"
-            size="lg"
-            className="w-full py-3 bg-white hover:bg-neutral-200 text-black font-bold flex items-center justify-center gap-3 transition-all rounded-xl shadow-glow"
             disabled={isSigningIn}
             onClick={handleGoogleSignIn}
+            className="w-full relative group py-3.5 px-6 rounded-2xl bg-white hover:bg-neutral-100 text-black font-bold text-sm sm:text-base flex items-center justify-center gap-3 transition-all duration-200 shadow-[0_0_30px_rgba(255,255,255,0.15)] hover:shadow-[0_0_40px_rgba(255,255,255,0.3)] active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none cursor-pointer"
           >
             {isSigningIn ? (
-              <Loader2 size={18} className="animate-spin text-black" />
+              <Loader2 size={20} className="animate-spin text-black shrink-0" />
             ) : (
               <>
-                <svg className="w-5 h-5" viewBox="0 0 24 24">
+                <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
                   <path
                     fill="#4285F4"
                     d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -152,10 +160,10 @@ function AppContent() {
                     d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
                   />
                 </svg>
-                <span>Continue with Google</span>
+                <span className="font-bold tracking-tight">Continue with Google</span>
               </>
             )}
-          </Button>
+          </button>
         </motion.div>
       </div>
     );

@@ -85,23 +85,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         )}
 
         {/* Google Auth Button */}
-        <Button
+        <button
           type="button"
-          variant="primary"
-          size="lg"
-          className="w-full py-3 bg-white hover:bg-neutral-200 text-black font-bold flex items-center justify-center gap-3 transition-all rounded-xl shadow-glow"
           disabled={isSubmitting}
           onClick={handleGoogleSignIn}
+          className="w-full relative group py-3.5 px-6 rounded-2xl bg-white hover:bg-neutral-100 text-black font-bold text-sm sm:text-base flex items-center justify-center gap-3 transition-all duration-200 shadow-[0_0_30px_rgba(255,255,255,0.15)] hover:shadow-[0_0_40px_rgba(255,255,255,0.3)] active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none cursor-pointer"
         >
           {isSubmitting ? (
-            <Loader2 size={18} className="animate-spin text-black" />
+            <Loader2 size={20} className="animate-spin text-black shrink-0" />
           ) : (
             <>
-              <GoogleIcon className="w-5 h-5" />
-              <span>Continue with Google</span>
+              <GoogleIcon className="w-5 h-5 shrink-0" />
+              <span className="font-bold tracking-tight">Continue with Google</span>
             </>
           )}
-        </Button>
+        </button>
       </div>
     </Modal>
   );

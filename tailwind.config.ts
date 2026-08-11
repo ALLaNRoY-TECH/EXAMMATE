@@ -25,8 +25,8 @@ const config: Config = {
         },
       },
       fontFamily: {
-        sans: ["var(--font-geist-sans)", "Inter", "Plus Jakarta Sans", "system-ui", "sans-serif"],
-        mono: ["var(--font-geist-mono)", "JetBrains Mono", "monospace"],
+        sans: ["'Plus Jakarta Sans'", "Inter", "system-ui", "-apple-system", "sans-serif"],
+        mono: ["'JetBrains Mono'", "monospace"],
       },
       boxShadow: {
         glow: "0 0 20px -5px rgba(255, 255, 255, 0.15)",
