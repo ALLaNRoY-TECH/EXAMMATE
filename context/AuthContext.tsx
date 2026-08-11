@@ -115,6 +115,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [configured]);
 
+  const getAuthRedirectUrl = () => {
+    if (typeof window !== 'undefined' && window.location?.origin) {
+      return `${window.location.origin}/auth/callback`;
+    }
+    if (process.env.NEXT_PUBLIC_SITE_URL) {
+      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, '');
+      return `${siteUrl}/auth/callback`;
+    }
+    return 'http://localhost:3000/auth/callback';
+  };
+
   const signInWithGoogle = async () => {
     if (!configured) {
       const mockUser = {
@@ -138,10 +149,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { error: null };
     }
 
+    const redirectTo = getAuthRedirectUrl();
+
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo,
         queryParams: {
           prompt: 'consent select_account',
         },
