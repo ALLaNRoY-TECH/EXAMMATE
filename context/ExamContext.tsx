@@ -13,6 +13,8 @@ interface ExamContextType {
   createExam: (examData: Omit<Exam, 'id'>) => Promise<{ exam?: Exam; error?: string }>;
   deleteExam: (examId: string) => Promise<{ error?: string }>;
   refreshExams: () => Promise<void>;
+}
+
 const defaultValue: ExamContextType = {
   exams: INITIAL_EXAMS,
   isLoadingExams: false,

@@ -51,16 +51,28 @@ const MOCK_DEFAULT_GROUPS: Group[] = [
 ];
 
 export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user } = useAuth();
+  const { user, isLoading: isAuthLoading } = useAuth();
   const [userGroups, setUserGroups] = useState<Group[]>([]);
-  const [activeGroup, setActiveGroup] = useState<Group | null>(null);
+  const [activeGroup, setActiveGroupState] = useState<Group | null>(null);
   const [isLoadingGroups, setIsLoadingGroups] = useState<boolean>(true);
   const configured = isSupabaseConfigured();
 
+  const setActiveGroup = (group: Group | null) => {
+    setActiveGroupState(group);
+    if (user && group) {
+      localStorage.setItem(`exammate_active_group_id_${user.id}`, group.id);
+    }
+  };
+
   const fetchUserGroups = async () => {
+    if (isAuthLoading) {
+      setIsLoadingGroups(true);
+      return;
+    }
+
     if (!user) {
       setUserGroups([]);
-      setActiveGroup(null);
+      setActiveGroupState(null);
       setIsLoadingGroups(false);
       return;
     }
@@ -69,7 +81,10 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const savedMockGroups = localStorage.getItem(`exammate_groups_${user.id}`);
       const groupsList = savedMockGroups ? JSON.parse(savedMockGroups) : MOCK_DEFAULT_GROUPS;
       setUserGroups(groupsList);
-      setActiveGroup((prev) => prev || groupsList[0] || null);
+
+      const savedActiveId = localStorage.getItem(`exammate_active_group_id_${user.id}`);
+      const foundActive = groupsList.find((g: Group) => g.id === savedActiveId);
+      setActiveGroupState(foundActive || groupsList[0] || null);
       setIsLoadingGroups(false);
       return;
     }
@@ -93,10 +108,16 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           }));
 
         setUserGroups(fetchedGroups);
-        setActiveGroup((prev) => {
-          if (!prev) return fetchedGroups[0] || null;
-          const updatedActive = fetchedGroups.find((g) => g.id === prev.id);
-          return updatedActive || fetchedGroups[0] || null;
+
+        const savedActiveId = localStorage.getItem(`exammate_active_group_id_${user.id}`);
+        const foundActive = fetchedGroups.find((g) => g.id === savedActiveId);
+
+        setActiveGroupState((prev) => {
+          if (prev) {
+            const updatedActive = fetchedGroups.find((g) => g.id === prev.id);
+            return updatedActive || foundActive || fetchedGroups[0] || null;
+          }
+          return foundActive || fetchedGroups[0] || null;
         });
       }
     } catch (err: any) {
@@ -108,7 +129,7 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   useEffect(() => {
     fetchUserGroups();
-  }, [user, configured]);
+  }, [user, isAuthLoading, configured]);
 
   // Create Group RPC
   const createGroup = async (name: string, college: string, course: string, year: string, section?: string) => {
