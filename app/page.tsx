@@ -41,7 +41,7 @@ function AppContent() {
   const [selectedExam, setSelectedExam] = useState<Exam | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
 
-  const currentSelectedExam = selectedExam || exams[0] || INITIAL_EXAMS[0];
+  const currentSelectedExam = selectedExam || (exams.length > 0 ? exams[0] : null);
 
   const handleGoogleSignIn = async () => {
     setAuthError('');
@@ -87,7 +87,9 @@ function AppContent() {
     setActiveTab('home');
   };
 
-  const nextExam = exams[0] || INITIAL_EXAMS[0];
+  const nextExam = exams.length > 0 ? exams[0] : null;
+  const totalMarks = exams.reduce((sum, e) => sum + (Number(e.marks) || 0), 0);
+  const uniqueSubjectsCount = new Set(exams.map((e) => e.subject)).size;
 
   const getDaysLeft = (dateStr: string) => {
     if (dateStr.includes('20')) return 9;
@@ -282,10 +284,23 @@ function AppContent() {
                   <span className="text-[10px] font-mono font-bold text-neutral-400 uppercase tracking-widest block">
                     NEXT EXAM
                   </span>
-                  <div className="text-3xl sm:text-4xl font-extrabold text-blue-400 font-mono tabular-nums">
-                    09<span className="text-xs text-neutral-400 ml-1">DAYS</span>
-                  </div>
-                  <span className="text-[10px] font-mono text-neutral-500 block">FLA · FT-1</span>
+                  {nextExam ? (
+                    <>
+                      <div className="text-3xl sm:text-4xl font-extrabold text-blue-400 font-mono tabular-nums">
+                        {getDaysLeft(nextExam.date)}<span className="text-xs text-neutral-400 ml-1">DAYS</span>
+                      </div>
+                      <span className="text-[10px] font-mono text-neutral-500 block truncate">
+                        {nextExam.courseCode} · {nextExam.examType}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <div className="text-3xl sm:text-4xl font-extrabold text-neutral-600 font-mono tabular-nums">
+                        00<span className="text-xs text-neutral-600 ml-1">DAYS</span>
+                      </div>
+                      <span className="text-[10px] font-mono text-neutral-500 block">No upcoming exam</span>
+                    </>
+                  )}
                 </div>
 
                 <div className="p-4 sm:p-5 rounded-2xl bg-[#0b0d13] border border-white/10 space-y-2">
@@ -293,9 +308,11 @@ function AppContent() {
                     TOTAL MARKS
                   </span>
                   <div className="text-3xl sm:text-4xl font-extrabold text-amber-400 font-mono tabular-nums">
-                    60<span className="text-xs text-neutral-400 ml-1">PTS</span>
+                    {totalMarks}<span className="text-xs text-neutral-400 ml-1">PTS</span>
                   </div>
-                  <span className="text-[10px] font-mono text-neutral-500 block">3 Subjects</span>
+                  <span className="text-[10px] font-mono text-neutral-500 block">
+                    {uniqueSubjectsCount} {uniqueSubjectsCount === 1 ? 'Subject' : 'Subjects'}
+                  </span>
                 </div>
 
                 <div className="p-4 sm:p-5 rounded-2xl bg-[#0b0d13] border border-white/10 space-y-2">
@@ -303,9 +320,11 @@ function AppContent() {
                     PREP STATUS
                   </span>
                   <div className="text-xl sm:text-2xl font-extrabold text-emerald-400 font-mono">
-                    ON TRACK
+                    {exams.length > 0 ? 'ON TRACK' : 'NO EXAMS'}
                   </div>
-                  <span className="text-[10px] font-mono text-neutral-500 block">Verified Syllabus</span>
+                  <span className="text-[10px] font-mono text-neutral-500 block">
+                    {exams.length > 0 ? 'Verified Syllabus' : 'Add First Exam'}
+                  </span>
                 </div>
               </div>
 
@@ -327,8 +346,15 @@ function AppContent() {
               </div>
 
               {/* Next Exam Hero Card */}
-              {nextExam && (
+              {nextExam ? (
                 <NextExamCard exam={nextExam} onSelect={handleSelectExam} />
+              ) : (
+                <div className="p-8 rounded-3xl bg-[#0b0d13] border border-white/10 text-center space-y-3 shadow-xl">
+                  <p className="text-sm font-bold text-white">No exams scheduled for {activeGroup ? activeGroup.name : 'this group'}</p>
+                  <p className="text-xs font-mono text-neutral-400 max-w-sm mx-auto">
+                    Click &quot;Add Exam&quot; above to schedule your class exams and notify all members.
+                  </p>
+                </div>
               )}
 
               {/* Upcoming Exams Grid */}
@@ -344,17 +370,23 @@ function AppContent() {
                   </button>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {exams.map((exam, idx) => (
-                    <ExamCard
-                      key={exam.id}
-                      exam={exam}
-                      daysLeft={getDaysLeft(exam.date)}
-                      index={idx}
-                      onSelect={handleSelectExam}
-                    />
-                  ))}
-                </div>
+                {exams.length > 0 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {exams.map((exam, idx) => (
+                      <ExamCard
+                        key={exam.id}
+                        exam={exam}
+                        daysLeft={getDaysLeft(exam.date)}
+                        index={idx}
+                        onSelect={handleSelectExam}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-6 rounded-2xl bg-[#0b0d13]/50 border border-white/5 text-center text-xs font-mono text-neutral-500">
+                    No scheduled exams found for this group.
+                  </div>
+                )}
               </div>
             </motion.div>
           )}

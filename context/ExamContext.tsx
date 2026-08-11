@@ -47,12 +47,18 @@ const mapRowToExam = (row: any): Exam => ({
 export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
   const { activeGroup } = useGroup();
-  const [exams, setExams] = useState<Exam[]>(INITIAL_EXAMS);
+  const [exams, setExams] = useState<Exam[]>([]);
   const [isLoadingExams, setIsLoadingExams] = useState<boolean>(true);
   const configured = isSupabaseConfigured();
 
   const fetchGroupExams = async () => {
-    if (!configured || !user || !activeGroup) {
+    if (!user || !activeGroup) {
+      setExams([]);
+      setIsLoadingExams(false);
+      return;
+    }
+
+    if (!configured) {
       setExams(INITIAL_EXAMS);
       setIsLoadingExams(false);
       return;
