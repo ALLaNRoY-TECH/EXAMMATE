@@ -89,6 +89,29 @@ export const ExamProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     fetchGroupExams();
+
+    if (!configured || !user || !activeGroup) return;
+
+    // Set up Realtime subscription for exams belonging to activeGroup
+    const channel = supabase
+      .channel(`exam_sync_${activeGroup.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'exams',
+          filter: `group_id=eq.${activeGroup.id}`,
+        },
+        () => {
+          fetchGroupExams();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [activeGroup?.id, user?.id, configured]);
 
   const createExam = async (examData: Omit<Exam, 'id'>): Promise<{ exam?: Exam; error?: string }> => {

@@ -450,7 +450,12 @@ CREATE POLICY "Exams delete policy"
   );
 
 -- --------------------------------------------------------------------
--- 10. RESET UTILITY (RUN IN SUPABASE SQL EDITOR TO RESET ALL GROUPS & EXAMS)
+-- 10. REALTIME PUBLICATION SETUP
+-- --------------------------------------------------------------------
+ALTER PUBLICATION supabase_realtime ADD TABLE public.groups, public.group_members, public.exams;
+
+-- --------------------------------------------------------------------
+-- 11. RESET UTILITY (RUN IN SUPABASE SQL EDITOR TO RESET ALL GROUPS & EXAMS)
 -- --------------------------------------------------------------------
 -- TRUNCATE TABLE public.exams, public.group_members, public.groups CASCADE;
 

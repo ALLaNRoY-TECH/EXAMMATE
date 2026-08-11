@@ -173,7 +173,43 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   useEffect(() => {
     fetchUserGroups();
-  }, [user, isAuthLoading, configured]);
+
+    if (!configured || !user) return;
+
+    // Set up Realtime subscription for group membership and group updates
+    const channel = supabase
+      .channel(`group_sync_${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'group_members',
+          filter: `user_id=eq.${user.id}`,
+        },
+        () => {
+          console.log('[GroupDebug] Realtime event on group_members. Refetching groups...');
+          fetchUserGroups();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'groups',
+        },
+        () => {
+          console.log('[GroupDebug] Realtime event on groups. Refetching groups...');
+          fetchUserGroups();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id, isAuthLoading, configured]);
 
   // Create Group RPC
   const createGroup = async (name: string, college: string, course: string, year: string, section?: string) => {
