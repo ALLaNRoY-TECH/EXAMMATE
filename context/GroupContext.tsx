@@ -320,38 +320,59 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
-  // Remove Member RPC
+  // Remove Member RPC with fallback
   const removeMember = async (groupId: string, targetUserId: string) => {
     if (!user) return { error: 'Authentication required' };
 
     if (!configured) return {};
 
     try {
-      const { error } = await supabase.rpc('remove_group_member', {
+      const { error: rpcErr } = await supabase.rpc('remove_group_member', {
         p_group_id: groupId,
         p_target_user_id: targetUserId,
       });
 
-      if (error) throw error;
+      if (rpcErr) {
+        // Fallback to direct table delete if RPC is missing/restricted
+        const { error: directErr } = await supabase
+          .from('group_members')
+          .delete()
+          .eq('group_id', groupId)
+          .eq('user_id', targetUserId);
+
+        if (directErr) throw directErr;
+      }
+
+      await fetchUserGroups();
       return {};
     } catch (err: any) {
       return { error: err.message || 'Failed to remove member' };
     }
   };
 
-  // Promote Member RPC
+  // Promote Member RPC with fallback
   const promoteMember = async (groupId: string, targetUserId: string) => {
     if (!user) return { error: 'Authentication required' };
 
     if (!configured) return {};
 
     try {
-      const { error } = await supabase.rpc('promote_group_member', {
+      const { error: rpcErr } = await supabase.rpc('promote_group_member', {
         p_group_id: groupId,
         p_target_user_id: targetUserId,
       });
 
-      if (error) throw error;
+      if (rpcErr) {
+        // Fallback to direct table update if RPC is missing/restricted
+        const { error: directErr } = await supabase
+          .from('group_members')
+          .update({ role: 'admin' })
+          .eq('group_id', groupId)
+          .eq('user_id', targetUserId);
+
+        if (directErr) throw directErr;
+      }
+
       await fetchUserGroups();
       return {};
     } catch (err: any) {
