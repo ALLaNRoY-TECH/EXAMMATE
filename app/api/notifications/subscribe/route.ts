@@ -24,7 +24,7 @@ async function getAuthenticatedUser(req: Request) {
 
   if (!token) return { user: null, error: 'Missing access token' };
 
-  // Validate JWT token against Supabase Auth API
+  // Validate JWT token against Supabase Auth API using publishable client
   const authClient = createClient(supabaseUrl, supabaseKey, {
     global: { headers: { Authorization: `Bearer ${token}` } },
   });
@@ -51,8 +51,37 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Invalid subscription payload' }, { status: 400 });
     }
 
-    // Use admin client server-side to perform database operation for verified user.id
-    const adminSupabase = getSupabaseAdmin();
+    const hasServiceRoleKey = Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY);
+    const serviceRoleKeyPrefix = process.env.SUPABASE_SERVICE_ROLE_KEY
+      ? process.env.SUPABASE_SERVICE_ROLE_KEY.substring(0, 8)
+      : null;
+
+    console.log('[PushDebug] subscribe', {
+      authenticatedUserId: user.id,
+      usingAdminClient: true,
+      hasServiceRoleKey,
+      serviceRoleKeyPrefix,
+      supabaseUrl,
+    });
+
+    // Obtain server-only admin client
+    let adminSupabase;
+    try {
+      adminSupabase = getSupabaseAdmin();
+    } catch (err: any) {
+      console.error('[Subscribe API] Admin client creation error:', err.message);
+      return NextResponse.json(
+        {
+          error: err.message,
+          diagnostics: {
+            hasServiceRoleKey,
+            serviceRoleKeyPrefix,
+            supabaseUrl,
+          },
+        },
+        { status: 500 }
+      );
+    }
 
     const { data, error } = await adminSupabase
       .from('push_subscriptions')
@@ -71,12 +100,32 @@ export async function POST(req: Request) {
       .single();
 
     if (error) {
-      console.error('[Subscribe API] Database error:', error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      console.error('[Subscribe API] Database error:', {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        hasServiceRoleKey,
+      });
+      return NextResponse.json(
+        {
+          error: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint,
+          diagnostics: {
+            hasServiceRoleKey,
+            serviceRoleKeyPrefix,
+            supabaseUrl,
+          },
+        },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({ success: true, subscription: data });
   } catch (err: any) {
+    console.error('[Subscribe API] Unhandled error:', err);
     return NextResponse.json({ error: err.message || 'Server error' }, { status: 500 });
   }
 }
