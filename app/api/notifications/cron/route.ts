@@ -6,18 +6,27 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || '';
 
 export async function GET(req: Request) {
-  return handleCron();
+  return handleCron(req);
 }
 
 export async function POST(req: Request) {
-  return handleCron();
+  return handleCron(req);
 }
 
-async function handleCron() {
+async function handleCron(req: Request) {
+  // Production security check for Vercel Cron
+  const cronSecret = process.env.CRON_SECRET;
+  const isVercelCron = req.headers.get('x-vercel-cron') === '1';
+  const authHeader = req.headers.get('Authorization');
+
+  if (cronSecret && !isVercelCron && authHeader !== `Bearer ${cronSecret}`) {
+    return NextResponse.json({ error: 'Unauthorized cron request' }, { status: 401 });
+  }
+
   try {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // 1. Fetch all exams
+    // 1. Fetch all scheduled exams
     const { data: exams, error: examErr } = await supabase
       .from('exams')
       .select('*');
@@ -26,17 +35,15 @@ async function handleCron() {
       return NextResponse.json({ success: true, processedExams: 0, sentCount: 0 });
     }
 
-    const now = new Date();
-    // India local date calculation (UTC + 5:30)
-    const indiaNowMs = now.getTime() + (5.5 * 60 * 60 * 1000);
-    const indiaNow = new Date(indiaNowMs);
-
-    const todayStart = new Date(indiaNow.getFullYear(), indiaNow.getMonth(), indiaNow.getDate(), 0, 0, 0);
+    // Centralized India Local Date Calculation (Asia/Kolkata)
+    const indiaDateStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    const [todayY, todayM, todayD] = indiaDateStr.split('-').map(Number);
+    const todayStart = new Date(todayY, todayM - 1, todayD, 0, 0, 0);
 
     let sentCount = 0;
 
     for (const exam of exams) {
-      if (!exam.exam_date) continue;
+      if (!exam.exam_date || !exam.group_id) continue;
 
       const parts = exam.exam_date.split('-');
       if (parts.length !== 3) continue;
@@ -52,24 +59,25 @@ async function handleCron() {
       let notificationType: '3_days' | '1_day' | 'exam_day' | null = null;
       let title = '';
       let body = '';
+      const examTypeName = exam.exam_type || exam.examType || 'Exam';
 
       if (diffDays === 3) {
         notificationType = '3_days';
         title = '📚 Exam in 3 Days';
-        body = `${exam.subject} — ${exam.examType} is on ${exam.exam_date} at ${exam.start_time || '10:00 AM'}. Time to start revising.`;
+        body = `${exam.subject} — ${examTypeName} is on ${exam.exam_date} at ${exam.start_time || '10:00 AM'}. Time to start revising.`;
       } else if (diffDays === 1) {
         notificationType = '1_day';
         title = '⚠️ Exam Tomorrow';
-        body = `${exam.subject} — ${exam.examType} is tomorrow at ${exam.start_time || '10:00 AM'} in ${exam.venue || 'Classroom'}.`;
+        body = `${exam.subject} — ${examTypeName} is tomorrow at ${exam.start_time || '10:00 AM'} in ${exam.venue || 'Classroom'}.`;
       } else if (diffDays === 0) {
         notificationType = 'exam_day';
         title = '🔴 Exam Today';
-        body = `${exam.subject} — ${exam.examType} is today at ${exam.start_time || '10:00 AM'} in ${exam.venue || 'Classroom'}.`;
+        body = `${exam.subject} — ${examTypeName} is today at ${exam.start_time || '10:00 AM'} in ${exam.venue || 'Classroom'}.`;
       }
 
       if (!notificationType) continue;
 
-      // 2. Fetch members of exam's group
+      // 2. Multi-group isolation: Fetch members ONLY for this exam's group
       const { data: members } = await supabase
         .from('group_members')
         .select('user_id')
@@ -79,7 +87,7 @@ async function handleCron() {
 
       const memberUserIds = members.map((m: any) => m.user_id);
 
-      // 3. Check notification preferences for members
+      // 3. Check user notification preferences
       const { data: prefs } = await supabase
         .from('notification_preferences')
         .select('user_id, three_days, one_day, exam_day')
@@ -111,7 +119,7 @@ async function handleCron() {
 
       if (usersToNotify.length === 0) continue;
 
-      // 5. Fetch push subscriptions for usersToNotify
+      // 5. Fetch push subscriptions for eligible group members
       const { data: subs } = await supabase
         .from('push_subscriptions')
         .select('user_id, endpoint, p256dh, auth')
@@ -132,38 +140,49 @@ async function handleCron() {
       const failedEndpoints: string[] = [];
 
       for (const sub of subs) {
-        const success = await sendWebPush(
-          { endpoint: sub.endpoint, p256dh: sub.p256dh, auth: sub.auth },
-          payload
-        );
+        try {
+          const success = await sendWebPush(
+            { endpoint: sub.endpoint, p256dh: sub.p256dh, auth: sub.auth },
+            payload
+          );
 
-        if (success) {
-          sentCount++;
-          try {
-            await supabase.from('notification_deliveries').upsert(
-              {
-                user_id: sub.user_id,
-                exam_id: exam.id,
-                notification_type: notificationType,
-                sent_at: new Date().toISOString(),
-              },
-              { onConflict: 'user_id,exam_id,notification_type' }
-            );
-          } catch (delErr) {
-            // ignore duplicates
+          if (success) {
+            sentCount++;
+            try {
+              await supabase.from('notification_deliveries').upsert(
+                {
+                  user_id: sub.user_id,
+                  exam_id: exam.id,
+                  notification_type: notificationType,
+                  sent_at: new Date().toISOString(),
+                },
+                { onConflict: 'user_id,exam_id,notification_type' }
+              );
+            } catch (delErr) {
+              // ignore duplicate key warnings
+            }
+          } else {
+            failedEndpoints.push(sub.endpoint);
           }
-        } else {
+        } catch (pushErr) {
+          console.error('[Cron] Error pushing to endpoint:', sub.endpoint, pushErr);
           failedEndpoints.push(sub.endpoint);
         }
       }
 
+      // Cleanup stale / expired push subscriptions safely
       if (failedEndpoints.length > 0) {
-        await supabase.from('push_subscriptions').delete().in('endpoint', failedEndpoints);
+        try {
+          await supabase.from('push_subscriptions').delete().in('endpoint', failedEndpoints);
+        } catch (cleanErr) {
+          console.warn('[Cron] Failed to clean expired endpoints:', cleanErr);
+        }
       }
     }
 
     return NextResponse.json({ success: true, processedExams: exams.length, sentCount });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message || 'Cron error' }, { status: 500 });
+    console.error('[Cron] Exception in handleCron:', err);
+    return NextResponse.json({ error: err.message || 'Cron execution failed' }, { status: 500 });
   }
 }
