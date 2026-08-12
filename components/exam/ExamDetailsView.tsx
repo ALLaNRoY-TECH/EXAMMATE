@@ -2,28 +2,42 @@
 
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Calendar, Clock, MapPin, Edit3, Trash2, BookOpen, FileText, Award, Layers, AlertTriangle } from 'lucide-react';
-import { Exam } from '@/types/exam';
+import { ArrowLeft, Calendar, Clock, MapPin, Edit3, Trash2, BookOpen, FileText, Award, Layers, AlertTriangle, Users } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
-import { useExam } from '@/context/ExamContext';
+import { useExam, ExamWithGroup } from '@/context/ExamContext';
+import { useGroup } from '@/context/GroupContext';
+import { useAuth } from '@/context/AuthContext';
+import { getExamCountdown } from '@/lib/utils/examCountdown';
 
 interface ExamDetailsViewProps {
-  exam: Exam;
+  exam: ExamWithGroup;
   onBack: () => void;
   onDelete: (examId: string) => void;
-  onEdit?: (exam: Exam) => void;
+  onEdit?: (exam: ExamWithGroup) => void;
 }
 
 export const ExamDetailsView: React.FC<ExamDetailsViewProps> = ({ exam, onBack, onDelete, onEdit }) => {
   const { deleteExam } = useExam();
+  const { activeGroup, userGroups } = useGroup();
+  const { user } = useAuth();
+
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
 
-  // Mock days calculation
-  const daysLeft = 9;
+  // Find target group for this exam
+  const examGroup = userGroups.find((g) => g.id === exam.group_id) || activeGroup;
+  const isGroupAdmin = examGroup?.role === 'admin' || examGroup?.created_by === user?.id || exam.created_by === user?.id;
+
+  const countdown = getExamCountdown(exam.date, exam.startTime);
+
+  const formattedDate = new Date(exam.date).toLocaleDateString('en-US', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  }).toUpperCase();
 
   const handleDeleteConfirm = async () => {
     setDeleteError('');
@@ -65,26 +79,35 @@ export const ExamDetailsView: React.FC<ExamDetailsViewProps> = ({ exam, onBack, 
             <span className="text-xs font-mono text-neutral-400 bg-neutral-900 border border-neutral-800 px-2.5 py-1 rounded-md">
               {exam.courseCode}
             </span>
+            {exam.groupName && (
+              <span className="text-xs font-mono text-purple-400 bg-purple-950/60 border border-purple-500/30 px-2.5 py-1 rounded-md flex items-center gap-1">
+                <Users size={12} />
+                {exam.groupName}
+              </span>
+            )}
           </div>
 
-          <div className="flex items-center gap-2">
-            <Button
-              variant="secondary"
-              size="sm"
-              icon={<Edit3 size={14} />}
-              onClick={() => onEdit && onEdit(exam)}
-            >
-              Edit
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              icon={<Trash2 size={14} />}
-              onClick={() => setIsDeleteModalOpen(true)}
-            >
-              Delete
-            </Button>
-          </div>
+          {/* Admin Actions */}
+          {isGroupAdmin && (
+            <div className="flex items-center gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<Edit3 size={14} />}
+                onClick={() => onEdit && onEdit(exam)}
+              >
+                Edit
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                icon={<Trash2 size={14} />}
+                onClick={() => setIsDeleteModalOpen(true)}
+              >
+                Delete
+              </Button>
+            </div>
+          )}
         </div>
 
         {/* Title & Giant Display Countdown */}
@@ -101,16 +124,18 @@ export const ExamDetailsView: React.FC<ExamDetailsViewProps> = ({ exam, onBack, 
           <div className="md:col-span-4 flex flex-col items-start md:items-end">
             <div className="flex items-baseline gap-2">
               <span className="text-6xl font-black text-blue-500 font-mono tracking-tighter tabular-nums drop-shadow-md">
-                0{daysLeft}
+                {countdown.isToday ? 'TODAY' : countdown.isCompleted ? 'DONE' : countdown.daysLeft < 10 ? `0${countdown.daysLeft}` : countdown.daysLeft}
               </span>
-              <div className="flex flex-col">
-                <span className="text-xs font-mono font-bold text-neutral-400 uppercase">
-                  DAYS
-                </span>
-                <span className="text-xs font-mono font-bold text-neutral-500 uppercase">
-                  LEFT
-                </span>
-              </div>
+              {!countdown.isToday && !countdown.isCompleted && (
+                <div className="flex flex-col">
+                  <span className="text-xs font-mono font-bold text-neutral-400 uppercase">
+                    DAYS
+                  </span>
+                  <span className="text-xs font-mono font-bold text-neutral-500 uppercase">
+                    LEFT
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -121,7 +146,7 @@ export const ExamDetailsView: React.FC<ExamDetailsViewProps> = ({ exam, onBack, 
             <Calendar size={18} className="text-blue-400 shrink-0" />
             <div>
               <span className="text-[10px] font-mono text-neutral-500 block uppercase">DATE</span>
-              <span className="text-sm font-semibold text-white">20 AUGUST 2026</span>
+              <span className="text-sm font-semibold text-white">{formattedDate}</span>
             </div>
           </div>
 
@@ -157,7 +182,7 @@ export const ExamDetailsView: React.FC<ExamDetailsViewProps> = ({ exam, onBack, 
             SYLLABUS & PORTION
           </div>
           <p className="text-base text-neutral-100 font-medium leading-relaxed pt-1">
-            {exam.portion}
+            {exam.portion || 'No specific portion detailed yet.'}
           </p>
         </motion.div>
 
@@ -173,7 +198,7 @@ export const ExamDetailsView: React.FC<ExamDetailsViewProps> = ({ exam, onBack, 
             QUESTION PATTERN
           </div>
           <p className="text-sm text-neutral-200 font-medium">
-            {exam.pattern}
+            {exam.pattern || 'Standard Question Pattern'}
           </p>
         </motion.div>
 
@@ -198,7 +223,7 @@ export const ExamDetailsView: React.FC<ExamDetailsViewProps> = ({ exam, onBack, 
               WEIGHTAGE CONVERSION
             </span>
             <span className="text-xs font-mono font-semibold text-emerald-400 bg-emerald-950/60 px-2 py-1 rounded border border-emerald-500/30">
-              {exam.conversion}
+              {exam.conversion || `${exam.examType} = 10 Marks`}
             </span>
           </div>
         </motion.div>
@@ -213,7 +238,7 @@ export const ExamDetailsView: React.FC<ExamDetailsViewProps> = ({ exam, onBack, 
         <div className="space-y-4">
           <div className="flex items-center gap-3 p-4 rounded-xl bg-red-950/40 border border-red-500/20 text-red-300 text-sm">
             <AlertTriangle size={20} className="shrink-0 text-red-400" />
-            <p>Are you sure you want to delete <strong>{exam.subject} ({exam.examType})</strong>? This action cannot be undone.</p>
+            <p>Are you sure you want to delete <strong>{exam.subject} ({exam.examType})</strong>? This will remove the exam for all group members.</p>
           </div>
 
           {deleteError && (

@@ -1,14 +1,14 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, ChevronRight, Users, KeyRound, LogIn, UserCheck, Loader2 } from 'lucide-react';
 import { Exam } from '@/types/exam';
-import { INITIAL_EXAMS } from '@/data/dummyExams';
 
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { GroupProvider, useGroup } from '@/context/GroupContext';
-import { ExamProvider, useExam } from '@/context/ExamContext';
+import { ExamProvider, useExam, ExamWithGroup } from '@/context/ExamContext';
 
 import { Sidebar, NavTab } from '@/components/navigation/Sidebar';
 import { BottomNavigation } from '@/components/navigation/BottomNavigation';
@@ -28,20 +28,21 @@ import { GroupMembersModal } from '@/components/groups/GroupMembersModal';
 
 import { Button } from '@/components/ui/Button';
 import { Toast, ToastMessage } from '@/components/ui/Toast';
+import { getExamCountdown } from '@/lib/utils/examCountdown';
 
 function AppContent() {
   const { user, profile, isLoading: isAuthLoading, signInWithGoogle } = useAuth();
   const { activeGroup, userGroups } = useGroup();
-  const { exams } = useExam();
+  const { allUserExams, recentNotification, clearNotification } = useExam();
 
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isSigningIn, setIsSigningIn] = useState<boolean>(false);
   const [authError, setAuthError] = useState<string>('');
   const [activeTab, setActiveTab] = useState<NavTab | 'details'>('home');
-  const [selectedExam, setSelectedExam] = useState<Exam | null>(null);
+  const [selectedExam, setSelectedExam] = useState<ExamWithGroup | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
 
-  const currentSelectedExam = selectedExam || (exams.length > 0 ? exams[0] : null);
+  const currentSelectedExam = selectedExam || (allUserExams.length > 0 ? allUserExams[0] : null);
 
   const handleGoogleSignIn = async () => {
     setAuthError('');
@@ -70,33 +71,39 @@ function AppContent() {
     }, 3500);
   };
 
-  const handleSelectExam = (exam: Exam) => {
+  // Sync Realtime Notification Events from ExamContext
+  useEffect(() => {
+    if (recentNotification) {
+      showToast(recentNotification.text, recentNotification.type);
+      clearNotification();
+    }
+  }, [recentNotification, clearNotification]);
+
+  const handleSelectExam = (exam: ExamWithGroup) => {
     setSelectedExam(exam);
     setActiveTab('details');
   };
 
-  const handleSaveExam = (newExam: Exam) => {
-    setSelectedExam(newExam);
-    showToast('Exam added successfully', 'success');
+  const handleSaveExam = (savedExam: ExamWithGroup) => {
+    setSelectedExam(savedExam);
+    showToast('Exam saved successfully', 'success');
     setActiveTab('home');
   };
 
   const handleDeleteExam = (_examId: string) => {
     setSelectedExam(null);
-    showToast('Exam deleted', 'info');
+    showToast('Exam removed', 'info');
     setActiveTab('home');
   };
 
-  const nextExam = exams.length > 0 ? exams[0] : null;
-  const totalMarks = exams.reduce((sum, e) => sum + (Number(e.marks) || 0), 0);
-  const uniqueSubjectsCount = new Set(exams.map((e) => e.subject)).size;
+  // Calculate upcoming next exam (first uncompleted exam)
+  const nextExam = allUserExams.find(
+    (e) => !getExamCountdown(e.date, e.startTime).isCompleted
+  ) || (allUserExams.length > 0 ? allUserExams[0] : null);
 
-  const getDaysLeft = (dateStr: string) => {
-    if (dateStr.includes('20')) return 9;
-    if (dateStr.includes('25')) return 14;
-    if (dateStr.includes('29')) return 18;
-    return 12;
-  };
+  const nextExamCountdown = nextExam ? getExamCountdown(nextExam.date, nextExam.startTime) : null;
+  const totalMarks = allUserExams.reduce((sum, e) => sum + (Number(e.marks) || 0), 0);
+  const uniqueSubjectsCount = new Set(allUserExams.map((e) => e.subject)).size;
 
   if (!isAuthLoading && !isLoading && !user) {
     return (
@@ -112,8 +119,14 @@ function AppContent() {
           <div className="absolute -bottom-24 -right-24 w-48 h-48 bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
 
           {/* Logo Badge */}
-          <div className="relative inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-white text-black font-black text-2xl shadow-[0_0_30px_rgba(255,255,255,0.25)] border border-white/80 mx-auto">
-            E
+          <div className="relative w-48 h-12 mx-auto">
+            <Image
+              src="/logo.png"
+              alt="ExamMate Logo"
+              fill
+              className="object-contain"
+              priority
+            />
           </div>
 
           {/* Typography Header */}
@@ -182,7 +195,7 @@ function AppContent() {
       <Sidebar
         activeTab={activeTab === 'details' ? 'home' : activeTab}
         onTabChange={(tab) => setActiveTab(tab)}
-        examCount={exams.length}
+        examCount={allUserExams.length}
         onOpenAuth={() => setIsAuthModalOpen(true)}
         onCreateGroup={() => setIsCreateGroupOpen(true)}
         onJoinGroup={() => setIsJoinGroupOpen(true)}
@@ -208,8 +221,8 @@ function AppContent() {
                     Welcome back, {profile?.name || (user ? 'Student' : 'Allan Roy')}!
                   </h1>
                   <p className="text-xs font-mono text-neutral-400 mt-1">
-                    {activeGroup
-                      ? `Viewing ${activeGroup.name} (${activeGroup.college})`
+                    {userGroups.length > 0
+                      ? `Member of ${userGroups.length} ${userGroups.length === 1 ? 'Group' : 'Groups'} · ${allUserExams.length} Total Exams`
                       : 'Here is your shared exam overview'}
                   </p>
                 </div>
@@ -266,17 +279,17 @@ function AppContent() {
                 </motion.div>
               )}
 
-              {/* Metric Overview Cards */}
+              {/* Metric Overview Cards (Union of All Groups) */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
                 <div className="p-4 sm:p-5 rounded-2xl bg-[#0b0d13] border border-white/10 space-y-2">
                   <span className="text-[10px] font-mono font-bold text-neutral-400 uppercase tracking-widest block">
                     TOTAL EXAMS
                   </span>
                   <div className="text-3xl sm:text-4xl font-extrabold text-white font-mono tabular-nums">
-                    {exams.length}
+                    {allUserExams.length}
                   </div>
                   <span className="text-[10px] font-mono text-neutral-500 block">
-                    {activeGroup ? activeGroup.name : 'Scheduled Term'}
+                    Across {userGroups.length} {userGroups.length === 1 ? 'Group' : 'Groups'}
                   </span>
                 </div>
 
@@ -284,10 +297,11 @@ function AppContent() {
                   <span className="text-[10px] font-mono font-bold text-neutral-400 uppercase tracking-widest block">
                     NEXT EXAM
                   </span>
-                  {nextExam ? (
+                  {nextExam && nextExamCountdown ? (
                     <>
                       <div className="text-3xl sm:text-4xl font-extrabold text-blue-400 font-mono tabular-nums">
-                        {getDaysLeft(nextExam.date)}<span className="text-xs text-neutral-400 ml-1">DAYS</span>
+                        {nextExamCountdown.isToday ? 'TODAY' : nextExamCountdown.daysLeft < 10 ? `0${nextExamCountdown.daysLeft}` : nextExamCountdown.daysLeft}
+                        {!nextExamCountdown.isToday && <span className="text-xs text-neutral-400 ml-1">DAYS</span>}
                       </div>
                       <span className="text-[10px] font-mono text-neutral-500 block truncate">
                         {nextExam.courseCode} · {nextExam.examType}
@@ -320,10 +334,10 @@ function AppContent() {
                     PREP STATUS
                   </span>
                   <div className="text-xl sm:text-2xl font-extrabold text-emerald-400 font-mono">
-                    {exams.length > 0 ? 'ON TRACK' : 'NO EXAMS'}
+                    {allUserExams.length > 0 ? 'ON TRACK' : 'NO EXAMS'}
                   </div>
                   <span className="text-[10px] font-mono text-neutral-500 block">
-                    {exams.length > 0 ? 'Verified Syllabus' : 'Add First Exam'}
+                    {allUserExams.length > 0 ? 'Verified Syllabus' : 'Add First Exam'}
                   </span>
                 </div>
               </div>
@@ -332,7 +346,7 @@ function AppContent() {
               <div className="flex items-center justify-between pt-2">
                 <div>
                   <h2 className="text-xl font-bold text-white tracking-tight">Imminent Exam</h2>
-                  <p className="text-xs font-mono text-neutral-400 mt-0.5">Highest priority upcoming evaluation</p>
+                  <p className="text-xs font-mono text-neutral-400 mt-0.5">Highest priority upcoming evaluation across your groups</p>
                 </div>
 
                 <Button
@@ -350,14 +364,14 @@ function AppContent() {
                 <NextExamCard exam={nextExam} onSelect={handleSelectExam} />
               ) : (
                 <div className="p-8 rounded-3xl bg-[#0b0d13] border border-white/10 text-center space-y-3 shadow-xl">
-                  <p className="text-sm font-bold text-white">No exams scheduled for {activeGroup ? activeGroup.name : 'this group'}</p>
+                  <p className="text-sm font-bold text-white">No exams scheduled for your groups</p>
                   <p className="text-xs font-mono text-neutral-400 max-w-sm mx-auto">
                     Click &quot;Add Exam&quot; above to schedule your class exams and notify all members.
                   </p>
                 </div>
               )}
 
-              {/* Upcoming Exams Grid */}
+              {/* Upcoming Exams Grid (Union of All Groups) */}
               <div className="space-y-4 pt-2">
                 <div className="flex items-center justify-between">
                   <h3 className="text-lg font-bold text-white tracking-tight">Scheduled Exams</h3>
@@ -370,13 +384,12 @@ function AppContent() {
                   </button>
                 </div>
 
-                {exams.length > 0 ? (
+                {allUserExams.length > 0 ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {exams.map((exam, idx) => (
+                    {allUserExams.map((exam, idx) => (
                       <ExamCard
                         key={exam.id}
                         exam={exam}
-                        daysLeft={getDaysLeft(exam.date)}
                         index={idx}
                         onSelect={handleSelectExam}
                       />
@@ -384,7 +397,7 @@ function AppContent() {
                   </div>
                 ) : (
                   <div className="p-6 rounded-2xl bg-[#0b0d13]/50 border border-white/5 text-center text-xs font-mono text-neutral-500">
-                    No scheduled exams found for this group.
+                    No scheduled exams found across your groups.
                   </div>
                 )}
               </div>
@@ -400,7 +413,7 @@ function AppContent() {
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.2 }}
             >
-              <CalendarView exams={exams} onSelectExam={handleSelectExam} />
+              <CalendarView exams={allUserExams} onSelectExam={handleSelectExam} />
             </motion.div>
           )}
 
@@ -431,7 +444,10 @@ function AppContent() {
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.2 }}
             >
-              <AddExamView onSaveExam={handleSaveExam} />
+              <AddExamView
+                onSaveExam={handleSaveExam}
+                examToEdit={activeTab === 'add' && selectedExam ? selectedExam : null}
+              />
             </motion.div>
           )}
 

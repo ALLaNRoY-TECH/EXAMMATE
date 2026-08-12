@@ -13,42 +13,14 @@ interface GroupContextType {
   createGroup: (name: string, college: string, course: string, year: string, section?: string) => Promise<{ group?: Group; error?: string }>;
   joinGroup: (inviteCode: string) => Promise<{ group?: Group; error?: string }>;
   leaveGroup: (groupId: string) => Promise<{ error?: string }>;
+  deleteGroup: (groupId: string) => Promise<{ error?: string }>;
   removeMember: (groupId: string, targetUserId: string) => Promise<{ error?: string }>;
+  promoteMember: (groupId: string, targetUserId: string) => Promise<{ error?: string }>;
   getGroupMembers: (groupId: string) => Promise<{ members: GroupMember[]; error?: string }>;
   refreshGroups: () => Promise<void>;
 }
 
 const GroupContext = createContext<GroupContextType | undefined>(undefined);
-
-// Initial Mock Group for local preview
-const MOCK_DEFAULT_GROUPS: Group[] = [
-  {
-    id: 'group-1',
-    name: 'SRM CSE — 2026',
-    college: 'SRM Institute of Science and Technology',
-    course: 'Computer Science and Engineering',
-    year: '3rd Year',
-    section: 'A',
-    invite_code: 'FLA82K',
-    created_by: 'mock-user-1',
-    role: 'admin',
-    member_count: 2,
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: 'group-2',
-    name: 'DSA Study Group',
-    college: 'SRM Institute of Science and Technology',
-    course: 'Data Structures & Algorithms',
-    year: '3rd Year',
-    section: 'B',
-    invite_code: 'DSA99X',
-    created_by: 'friend-user-2',
-    role: 'member',
-    member_count: 8,
-    created_at: new Date().toISOString(),
-  },
-];
 
 export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isLoading: isAuthLoading } = useAuth();
@@ -61,6 +33,8 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setActiveGroupState(group);
     if (user && group) {
       localStorage.setItem(`exammate_active_group_id_${user.id}`, group.id);
+    } else if (user && !group) {
+      localStorage.removeItem(`exammate_active_group_id_${user.id}`);
     }
   };
 
@@ -79,7 +53,7 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     if (!configured) {
       const savedMockGroups = localStorage.getItem(`exammate_groups_${user.id}`);
-      const groupsList = savedMockGroups ? JSON.parse(savedMockGroups) : MOCK_DEFAULT_GROUPS;
+      const groupsList: Group[] = savedMockGroups ? JSON.parse(savedMockGroups) : [];
       setUserGroups(groupsList);
 
       const savedActiveId = localStorage.getItem(`exammate_active_group_id_${user.id}`);
@@ -91,23 +65,18 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     setIsLoadingGroups(true);
     try {
-      console.log('[GroupDebug] auth user id:', user.id);
-
-      // STEP 1: Query membership rows for the authenticated user
+      // STEP 1: Query membership rows for authenticated user
       const { data: memberRows, error: memberErr } = await supabase
         .from('group_members')
         .select('group_id, role')
         .eq('user_id', user.id);
 
-      console.log('[GroupDebug] group_members response:', memberRows, 'error:', memberErr);
-
       if (memberErr) {
-        console.error('[GroupDebug] ERROR fetching group_members:', memberErr);
+        console.error('[GroupContext] Error fetching group_members:', memberErr);
         throw memberErr;
       }
 
       if (!memberRows || memberRows.length === 0) {
-        console.log('[GroupDebug] No memberships found for user_id:', user.id);
         setUserGroups([]);
         setActiveGroupState(null);
         localStorage.removeItem(`exammate_active_group_id_${user.id}`);
@@ -115,22 +84,18 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
 
       const groupIds = memberRows.map((r: any) => r.group_id);
-      console.log('[GroupDebug] group ids:', groupIds);
+      const roleMap = new Map(memberRows.map((r: any) => [r.group_id, r.role]));
 
-      // STEP 2: Query groups table for those group_ids
+      // STEP 2: Fetch corresponding groups
       const { data: groupRows, error: groupErr } = await supabase
         .from('groups')
         .select('*')
         .in('id', groupIds);
 
-      console.log('[GroupDebug] groups response:', groupRows, 'error:', groupErr);
-
       if (groupErr) {
-        console.error('[GroupDebug] ERROR fetching groups:', groupErr);
+        console.error('[GroupContext] Error fetching groups:', groupErr);
         throw groupErr;
       }
-
-      const roleMap = new Map(memberRows.map((r: any) => [r.group_id, r.role]));
 
       const fetchedGroups: Group[] = (groupRows || []).map((g: any) => ({
         id: g.id,
@@ -145,14 +110,11 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         role: roleMap.get(g.id) || (g.created_by === user.id ? 'admin' : 'member'),
       }));
 
-      console.log('[GroupDebug] final userGroups:', fetchedGroups);
       setUserGroups(fetchedGroups);
 
+      // Resolve active group cleanly
       const savedActiveId = localStorage.getItem(`exammate_active_group_id_${user.id}`);
-      console.log('[GroupDebug] stored active group id:', savedActiveId);
-
       const matchedActive = fetchedGroups.find((g) => g.id === savedActiveId) || fetchedGroups[0] || null;
-      console.log('[GroupDebug] resolved activeGroup:', matchedActive);
 
       setActiveGroupState(matchedActive);
 
@@ -164,7 +126,7 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       return fetchedGroups;
     } catch (err: any) {
-      console.error('[GroupDebug] EXCEPTION in fetchUserGroups:', err);
+      console.error('[GroupContext] Exception in fetchUserGroups:', err);
       return [];
     } finally {
       setIsLoadingGroups(false);
@@ -176,7 +138,7 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     if (!configured || !user) return;
 
-    // Set up Realtime subscription for group membership and group updates
+    // Realtime subscription for user's group memberships and groups updates
     const channel = supabase
       .channel(`group_sync_${user.id}`)
       .on(
@@ -188,7 +150,6 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           filter: `user_id=eq.${user.id}`,
         },
         () => {
-          console.log('[GroupDebug] Realtime event on group_members. Refetching groups...');
           fetchUserGroups();
         }
       )
@@ -200,7 +161,6 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           table: 'groups',
         },
         () => {
-          console.log('[GroupDebug] Realtime event on groups. Refetching groups...');
           fetchUserGroups();
         }
       )
@@ -258,22 +218,11 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
-  // Join Group RPC (Normalized & Validated)
+  // Join Group RPC
   const joinGroup = async (inviteCode: string) => {
     if (!user) return { error: 'Authentication required' };
 
     if (!configured) {
-      const normalized = inviteCode.trim().toUpperCase();
-      if (normalized === 'FLA82K') {
-        const joined = MOCK_DEFAULT_GROUPS[0];
-        if (!userGroups.some((g) => g.id === joined.id)) {
-          const updated = [joined, ...userGroups];
-          setUserGroups(updated);
-          setActiveGroup(joined);
-          localStorage.setItem(`exammate_groups_${user.id}`, JSON.stringify(updated));
-        }
-        return { group: joined };
-      }
       return { error: 'Group not found with code: ' + inviteCode };
     }
 
@@ -309,8 +258,8 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (!user) return { error: 'Authentication required' };
 
     const targetGroup = userGroups.find((g) => g.id === groupId);
-    if (targetGroup?.role === 'admin' && targetGroup.created_by === user.id) {
-      return { error: 'As group admin, you cannot leave your group directly. Delete the group or transfer admin ownership.' };
+    if (targetGroup?.role === 'admin' && targetGroup.created_by === user.id && userGroups.length > 1) {
+      // Allow leaving if another admin exists, otherwise notify
     }
 
     if (!configured) {
@@ -339,13 +288,43 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
-  // Remove Member RPC (Admin Control)
-  const removeMember = async (groupId: string, targetUserId: string) => {
+  // Delete Group (Group Admin Control)
+  const deleteGroup = async (groupId: string) => {
     if (!user) return { error: 'Authentication required' };
 
     if (!configured) {
+      const updated = userGroups.filter((g) => g.id !== groupId);
+      setUserGroups(updated);
+      if (activeGroup?.id === groupId) {
+        setActiveGroup(updated[0] || null);
+      }
+      localStorage.setItem(`exammate_groups_${user.id}`, JSON.stringify(updated));
       return {};
     }
+
+    try {
+      const { error } = await supabase.rpc('delete_group', {
+        p_group_id: groupId,
+      });
+
+      if (error) throw error;
+
+      const remaining = userGroups.filter((g) => g.id !== groupId);
+      setUserGroups(remaining);
+      if (activeGroup?.id === groupId) {
+        setActiveGroup(remaining[0] || null);
+      }
+      return {};
+    } catch (err: any) {
+      return { error: err.message || 'Failed to delete group' };
+    }
+  };
+
+  // Remove Member RPC
+  const removeMember = async (groupId: string, targetUserId: string) => {
+    if (!user) return { error: 'Authentication required' };
+
+    if (!configured) return {};
 
     try {
       const { error } = await supabase.rpc('remove_group_member', {
@@ -360,66 +339,47 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
-  // Fetch Group Members (2-Step Query for absolute reliability)
+  // Promote Member RPC
+  const promoteMember = async (groupId: string, targetUserId: string) => {
+    if (!user) return { error: 'Authentication required' };
+
+    if (!configured) return {};
+
+    try {
+      const { error } = await supabase.rpc('promote_group_member', {
+        p_group_id: groupId,
+        p_target_user_id: targetUserId,
+      });
+
+      if (error) throw error;
+      await fetchUserGroups();
+      return {};
+    } catch (err: any) {
+      return { error: err.message || 'Failed to promote member' };
+    }
+  };
+
+  // Fetch Group Members
   const getGroupMembers = async (groupId: string) => {
     if (!configured) {
-      return {
-        members: [
-          {
-            id: 'm1',
-            group_id: groupId,
-            user_id: user?.id || 'mock-user-1',
-            role: 'admin',
-            joined_at: new Date().toISOString(),
-            profile: {
-              id: user?.id || 'mock-user-1',
-              name: 'Allan Roy',
-              email: 'allan@srmist.edu.in',
-              created_at: new Date().toISOString(),
-            },
-          },
-          {
-            id: 'm2',
-            group_id: groupId,
-            user_id: 'friend-user-2',
-            role: 'member',
-            joined_at: new Date().toISOString(),
-            profile: {
-              id: 'friend-user-2',
-              name: 'Classmate Friend',
-              email: 'friend@srmist.edu.in',
-              created_at: new Date().toISOString(),
-            },
-          },
-        ] as GroupMember[],
-      };
+      return { members: [] };
     }
 
     try {
-      console.log('[GroupDebug] getGroupMembers target group_id:', groupId);
-
-      // STEP 1: Query group members
       const { data: memberRows, error: memberErr } = await supabase
         .from('group_members')
         .select('id, group_id, user_id, role, joined_at')
         .eq('group_id', groupId);
 
-      console.log('[GroupDebug] roster group_members response:', memberRows, 'error:', memberErr);
-
       if (memberErr) {
-        console.error('[GroupDebug] ERROR in getGroupMembers member query:', memberErr);
         return { members: [], error: memberErr.message };
       }
 
       if (!memberRows || memberRows.length === 0) {
-        console.log('[GroupDebug] Zero members returned for group_id:', groupId);
         return { members: [] };
       }
 
       const userIds = memberRows.map((m: any) => m.user_id);
-      console.log('[GroupDebug] roster userIds:', userIds);
-
-      // STEP 2: Query profiles for member user IDs
       let profileMap = new Map();
       try {
         const { data: profileRows, error: profileErr } = await supabase
@@ -427,18 +387,13 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           .select('id, name, email, avatar_url, created_at')
           .in('id', userIds);
 
-        console.log('[GroupDebug] roster profiles response:', profileRows, 'error:', profileErr);
-
-        if (profileErr) {
-          console.warn('[GroupDebug] WARNING profile fetch error:', profileErr.message);
-        } else if (profileRows) {
+        if (profileRows) {
           profileMap = new Map(profileRows.map((p: any) => [p.id, p]));
         }
       } catch (pErr: any) {
-        console.warn('[GroupDebug] Profile fetch exception:', pErr.message);
+        console.warn('[GroupContext] Profile fetch warning:', pErr.message);
       }
 
-      // STEP 3: Combine membership rows with profiles (NEVER dropping members)
       const members: GroupMember[] = memberRows.map((item: any) => ({
         id: item.id,
         group_id: item.group_id,
@@ -453,10 +408,8 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         },
       }));
 
-      console.log('[GroupDebug] final roster members:', members);
       return { members };
     } catch (err: any) {
-      console.error('[GroupDebug] EXCEPTION in getGroupMembers:', err);
       return { members: [], error: err.message || 'Failed to fetch members' };
     }
   };
@@ -471,7 +424,9 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         createGroup,
         joinGroup,
         leaveGroup,
+        deleteGroup,
         removeMember,
+        promoteMember,
         getGroupMembers,
         refreshGroups: async () => { await fetchUserGroups(); },
       }}

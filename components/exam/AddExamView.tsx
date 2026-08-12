@@ -1,45 +1,60 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Edit3, Loader2, CheckCircle2, Calendar, Clock, MapPin, BookOpen, Layers, FileText, AlertCircle } from 'lucide-react';
+import { Edit3, Loader2, CheckCircle2, Calendar, Clock, MapPin, BookOpen, Layers, FileText, AlertCircle, AlertTriangle } from 'lucide-react';
 import { Exam, ExamType, ExamMode } from '@/types/exam';
 import { Button } from '@/components/ui/Button';
-import { useExam } from '@/context/ExamContext';
+import { useExam, ExamWithGroup } from '@/context/ExamContext';
+import { useGroup } from '@/context/GroupContext';
 
 interface AddExamViewProps {
-  onSaveExam: (exam: Exam) => void;
+  onSaveExam: (exam: ExamWithGroup) => void;
+  examToEdit?: ExamWithGroup | null;
 }
 
-export const AddExamView: React.FC<AddExamViewProps> = ({ onSaveExam }) => {
-  const { createExam } = useExam();
-  const [activeTab, setActiveTab] = useState<'paste' | 'manual'>('paste');
+export const AddExamView: React.FC<AddExamViewProps> = ({ onSaveExam, examToEdit }) => {
+  const { createExam, updateExam, activeGroupExams } = useExam();
+  const { activeGroup } = useGroup();
+
+  const [activeTab, setActiveTab] = useState<'paste' | 'manual'>(examToEdit ? 'manual' : 'paste');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [duplicateWarning, setDuplicateWarning] = useState('');
+  const [allowDuplicate, setAllowDuplicate] = useState(false);
 
   // Option A: Paste State
-  const [pasteText, setPasteText] = useState<string>(
-    'Dear students, the FT-1 exam for Formal Language & Automata (21CSC301T) is scheduled on 20th August 2026 from 10:40 AM to 11:30 AM in Classroom 301. Portion will be Unit 1 till NFA DFA Construction. Pattern includes MCQ and Subjective (15 Marks total, converted to 5 marks).'
-  );
+  const [pasteText, setPasteText] = useState<string>('');
   const [isParsing, setIsParsing] = useState<boolean>(false);
   const [parseStep, setParseStep] = useState<number>(0);
   const [parsedExam, setParsedExam] = useState<Exam | null>(null);
 
   // Option B: Form State
-  const [subject, setSubject] = useState('');
-  const [courseCode, setCourseCode] = useState('');
-  const [examType, setExamType] = useState<ExamType>('FT-1');
-  const [date, setDate] = useState('2026-08-30');
-  const [startTime, setStartTime] = useState('10:00 AM');
-  const [endTime, setEndTime] = useState('11:30 AM');
-  const [venue, setVenue] = useState('Hall 402');
-  const [mode, setMode] = useState<ExamMode>('Physical');
-  const [portion, setPortion] = useState('');
-  const [pattern, setPattern] = useState('MCQ and Subjective');
-  const [marks, setMarks] = useState<number>(20);
-  const [conversion, setConversion] = useState('Converted to 10 Marks');
+  const todayStr = new Date().toISOString().split('T')[0];
 
-  // Simulate AI Parser
+  const [subject, setSubject] = useState(examToEdit?.subject || '');
+  const [courseCode, setCourseCode] = useState(examToEdit?.courseCode || '');
+  const [examType, setExamType] = useState<ExamType>(examToEdit?.examType || 'FT-1');
+  const [date, setDate] = useState(examToEdit?.date || todayStr);
+  const [startTime, setStartTime] = useState(examToEdit?.startTime || '10:00 AM');
+  const [endTime, setEndTime] = useState(examToEdit?.endTime || '11:30 AM');
+  const [venue, setVenue] = useState(examToEdit?.venue || 'Classroom 301');
+  const [mode, setMode] = useState<ExamMode>(examToEdit?.mode || 'Physical');
+  const [portion, setPortion] = useState(examToEdit?.portion || '');
+  const [pattern, setPattern] = useState(examToEdit?.pattern || 'MCQ and Subjective');
+  const [marks, setMarks] = useState<number>(examToEdit?.marks || 20);
+  const [conversion, setConversion] = useState(examToEdit?.conversion || '');
+
+  // Check duplicate exam type within active group
+  useEffect(() => {
+    if (!examToEdit && activeGroupExams.some((e) => e.examType === examType)) {
+      setDuplicateWarning(`Duplicate exam type: ${activeGroup?.name || 'This group'} already has an ${examType} exam.`);
+    } else {
+      setDuplicateWarning('');
+    }
+  }, [examType, activeGroupExams, activeGroup?.id, examToEdit]);
+
+  // AI Parser Simulation
   const handleParse = () => {
     if (!pasteText.trim()) return;
 
@@ -50,20 +65,27 @@ export const AddExamView: React.FC<AddExamViewProps> = ({ onSaveExam }) => {
     setTimeout(() => setParseStep(3), 1400);
     setTimeout(() => {
       setIsParsing(false);
+
+      // Simple regex extractors or fallback
+      const text = pasteText;
+      const parsedSubj = text.match(/(?:subject|exam for|in)\s+([A-Za-z\s]+)/i)?.[1]?.trim() || 'Exam Subject';
+      const parsedCode = text.match(/\(([A-Z0-9]+)\)/i)?.[1] || 'COURSE101';
+      const parsedType: ExamType = (text.match(/FT-1|FT-2|CT-1|CT-2|End Semester|Practical/i)?.[0] as ExamType) || 'FT-1';
+
       setParsedExam({
         id: `exam-${Date.now()}`,
-        subject: 'Formal Language & Automata',
-        courseCode: '21CSC301T',
-        examType: 'FT-1',
-        date: '2026-08-20',
-        startTime: '10:40 AM',
+        subject: parsedSubj,
+        courseCode: parsedCode,
+        examType: parsedType,
+        date: todayStr,
+        startTime: '10:00 AM',
         endTime: '11:30 AM',
-        venue: 'Classroom 301',
+        venue: 'Classroom',
         mode: 'Physical',
-        portion: 'Unit 1 — till NFA, DFA Construction',
-        pattern: 'MCQ and Subjective',
-        marks: 15,
-        conversion: 'FT-1 = 5 Marks',
+        portion: text.length > 20 ? text.substring(0, 150) + '...' : text,
+        pattern: 'MCQ & Subjective',
+        marks: 20,
+        conversion: `${parsedType} = 10 Marks`,
         accentColor: 'blue',
       });
     }, 2100);
@@ -71,41 +93,82 @@ export const AddExamView: React.FC<AddExamViewProps> = ({ onSaveExam }) => {
 
   const handleConfirmParsed = async () => {
     if (parsedExam) {
-      const { exam } = await createExam(parsedExam);
-      onSaveExam(exam || parsedExam);
+      if (duplicateWarning && !allowDuplicate) {
+        setErrorMsg('Please confirm duplicate override before saving.');
+        return;
+      }
+
+      setIsSubmitting(true);
+      const { exam, error } = await createExam(parsedExam);
+      setIsSubmitting(false);
+
+      if (error) {
+        setErrorMsg(error);
+      } else if (exam) {
+        onSaveExam(exam);
+      }
     }
   };
 
   const handleManualSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
+
     if (!subject.trim()) {
       setErrorMsg('Please enter a subject name');
       return;
     }
 
+    if (duplicateWarning && !allowDuplicate && !examToEdit) {
+      setErrorMsg(`Warning: This group already has an ${examType} exam. Check "Allow Duplicate" to proceed.`);
+      return;
+    }
+
     setIsSubmitting(true);
     try {
-      const { exam, error } = await createExam({
-        subject,
-        courseCode: courseCode || '21CSC000T',
-        examType,
-        date,
-        startTime,
-        endTime,
-        venue: venue || 'Classroom',
-        mode,
-        portion: portion || 'All covered topics',
-        pattern,
-        marks: Number(marks) || 20,
-        conversion: conversion || `${examType} = 10 Marks`,
-        accentColor: 'emerald',
-      });
+      if (examToEdit) {
+        const { exam, error } = await updateExam(examToEdit.id, {
+          subject,
+          courseCode: courseCode || 'COURSE101',
+          examType,
+          date,
+          startTime,
+          endTime,
+          venue: venue || 'Classroom',
+          mode,
+          portion: portion || 'Covered syllabus',
+          pattern,
+          marks: Number(marks) || 20,
+          conversion: conversion || `${examType} = 10 Marks`,
+        });
 
-      if (error) {
-        setErrorMsg(error);
-      } else if (exam) {
-        onSaveExam(exam);
+        if (error) {
+          setErrorMsg(error);
+        } else if (exam) {
+          onSaveExam(exam);
+        }
+      } else {
+        const { exam, error } = await createExam({
+          subject,
+          courseCode: courseCode || 'COURSE101',
+          examType,
+          date,
+          startTime,
+          endTime,
+          venue: venue || 'Classroom',
+          mode,
+          portion: portion || 'Covered syllabus',
+          pattern,
+          marks: Number(marks) || 20,
+          conversion: conversion || `${examType} = 10 Marks`,
+          accentColor: 'emerald',
+        });
+
+        if (error) {
+          setErrorMsg(error);
+        } else if (exam) {
+          onSaveExam(exam);
+        }
       }
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to save exam');
@@ -120,51 +183,76 @@ export const AddExamView: React.FC<AddExamViewProps> = ({ onSaveExam }) => {
     <div className="max-w-3xl mx-auto space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-extrabold text-white tracking-tight">Add Exam</h1>
+        <h1 className="text-3xl font-extrabold text-white tracking-tight">
+          {examToEdit ? 'Edit Exam' : 'Add Exam'}
+        </h1>
         <p className="text-xs font-mono text-neutral-400 mt-1">
-          Choose your preferred method to add upcoming exams to ExamMate.
+          {examToEdit ? `Updating ${examToEdit.subject} for ${activeGroup?.name}` : `Create a new exam entry for ${activeGroup?.name || 'your group'}`}
         </p>
       </div>
 
       {/* Tab Selector */}
-      <div className="flex items-center p-1.5 rounded-2xl bg-neutral-950 border border-neutral-800">
-        <button
-          onClick={() => setActiveTab('paste')}
-          className={`relative flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center justify-center gap-2 cursor-pointer ${
-            activeTab === 'paste' ? 'text-white' : 'text-neutral-400 hover:text-neutral-200'
-          }`}
-        >
-          {activeTab === 'paste' && (
-            <motion.div
-              layoutId="activeAddTab"
-              className="absolute inset-0 bg-neutral-900 border border-neutral-700/80 rounded-xl"
-              transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-            />
-          )}
-          <FileText size={16} className={activeTab === 'paste' ? 'text-blue-400 relative z-10' : 'relative z-10'} />
-          <span className="relative z-10">Option A · AI Announcement Parser</span>
-        </button>
+      {!examToEdit && (
+        <div className="flex items-center p-1.5 rounded-2xl bg-neutral-950 border border-neutral-800">
+          <button
+            type="button"
+            onClick={() => setActiveTab('paste')}
+            className={`relative flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+              activeTab === 'paste' ? 'text-white' : 'text-neutral-400 hover:text-neutral-200'
+            }`}
+          >
+            {activeTab === 'paste' && (
+              <motion.div
+                layoutId="activeAddTab"
+                className="absolute inset-0 bg-neutral-900 border border-neutral-700/80 rounded-xl"
+                transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+              />
+            )}
+            <FileText size={16} className={activeTab === 'paste' ? 'text-blue-400 relative z-10' : 'relative z-10'} />
+            <span className="relative z-10">Option A · AI Announcement Parser</span>
+          </button>
 
-        <button
-          onClick={() => setActiveTab('manual')}
-          className={`relative flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center justify-center gap-2 cursor-pointer ${
-            activeTab === 'manual' ? 'text-white' : 'text-neutral-400 hover:text-neutral-200'
-          }`}
-        >
-          {activeTab === 'manual' && (
-            <motion.div
-              layoutId="activeAddTab"
-              className="absolute inset-0 bg-neutral-900 border border-neutral-700/80 rounded-xl"
-              transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+          <button
+            type="button"
+            onClick={() => setActiveTab('manual')}
+            className={`relative flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+              activeTab === 'manual' ? 'text-white' : 'text-neutral-400 hover:text-neutral-200'
+            }`}
+          >
+            {activeTab === 'manual' && (
+              <motion.div
+                layoutId="activeAddTab"
+                className="absolute inset-0 bg-neutral-900 border border-neutral-700/80 rounded-xl"
+                transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+              />
+            )}
+            <Edit3 size={16} className="relative z-10" />
+            <span className="relative z-10">Option B · Enter Manually</span>
+          </button>
+        </div>
+      )}
+
+      {/* Duplicate Warning Banner */}
+      {duplicateWarning && (
+        <div className="p-4 rounded-2xl bg-amber-950/40 border border-amber-500/30 text-amber-300 text-xs space-y-2">
+          <div className="flex items-center gap-2 font-bold">
+            <AlertTriangle size={18} className="text-amber-400 shrink-0" />
+            <span>{duplicateWarning}</span>
+          </div>
+          <label className="flex items-center gap-2 pt-1 text-neutral-300 font-mono cursor-pointer">
+            <input
+              type="checkbox"
+              checked={allowDuplicate}
+              onChange={(e) => setAllowDuplicate(e.target.checked)}
+              className="rounded bg-neutral-900 border-neutral-700 text-amber-500 focus:ring-amber-400"
             />
-          )}
-          <Edit3 size={16} className="relative z-10" />
-          <span className="relative z-10">Option B · Enter Manually</span>
-        </button>
-      </div>
+            <span>I intend to add a duplicate exam of type {examType}</span>
+          </label>
+        </div>
+      )}
 
       {/* OPTION A: PASTE ANNOUNCEMENT */}
-      {activeTab === 'paste' && (
+      {activeTab === 'paste' && !examToEdit && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -179,15 +267,11 @@ export const AddExamView: React.FC<AddExamViewProps> = ({ onSaveExam }) => {
               rows={5}
               value={pasteText}
               onChange={(e) => setPasteText(e.target.value)}
-              placeholder="Paste the message from your faculty here..."
+              placeholder="Paste WhatsApp or portal announcement from your faculty here..."
               className="w-full p-4 rounded-2xl bg-neutral-900 border border-neutral-800 text-white placeholder-neutral-500 focus:outline-none focus:border-white focus:ring-1 focus:ring-white text-sm leading-relaxed resize-none transition-all font-sans"
             />
-            <p className="text-xs text-neutral-500 font-mono flex items-center gap-1">
-              <span>Hint: Paste the full WhatsApp or Portal announcement. ExamMate will auto-extract exam dates, syllabus, and timing.</span>
-            </p>
           </div>
 
-          {/* Action Trigger */}
           {!parsedExam && (
             <Button
               variant="primary"
@@ -201,7 +285,6 @@ export const AddExamView: React.FC<AddExamViewProps> = ({ onSaveExam }) => {
             </Button>
           )}
 
-          {/* Parsing Sequence Progress */}
           {isParsing && (
             <motion.div
               initial={{ opacity: 0 }}
@@ -223,7 +306,6 @@ export const AddExamView: React.FC<AddExamViewProps> = ({ onSaveExam }) => {
             </motion.div>
           )}
 
-          {/* Extracted Details Preview */}
           <AnimatePresence>
             {parsedExam && (
               <motion.div
@@ -248,27 +330,14 @@ export const AddExamView: React.FC<AddExamViewProps> = ({ onSaveExam }) => {
                     <span className="text-neutral-500 font-mono block">EXAM TYPE & MODE</span>
                     <span className="text-sm font-semibold text-white">{parsedExam.examType} · {parsedExam.mode}</span>
                   </div>
-                  <div>
-                    <span className="text-neutral-500 font-mono block">DATE & TIME</span>
-                    <span className="text-sm font-semibold text-white">{parsedExam.date} ({parsedExam.startTime})</span>
-                  </div>
-                  <div>
-                    <span className="text-neutral-500 font-mono block">VENUE</span>
-                    <span className="text-sm font-semibold text-white">{parsedExam.venue}</span>
-                  </div>
-                </div>
-
-                <div className="pt-2">
-                  <span className="text-neutral-500 font-mono text-xs block">SYLLABUS PORTION</span>
-                  <p className="text-xs text-neutral-200 font-medium">{parsedExam.portion}</p>
                 </div>
 
                 <div className="flex items-center gap-3 pt-3 border-t border-neutral-800">
                   <Button variant="outline" size="md" className="flex-1" onClick={() => setParsedExam(null)}>
                     Re-parse
                   </Button>
-                  <Button variant="primary" size="md" className="flex-1" onClick={handleConfirmParsed}>
-                    Confirm & Save Exam
+                  <Button variant="primary" size="md" className="flex-1" disabled={isSubmitting} onClick={handleConfirmParsed}>
+                    {isSubmitting ? 'Saving...' : 'Confirm & Save Exam'}
                   </Button>
                 </div>
               </motion.div>
@@ -278,7 +347,7 @@ export const AddExamView: React.FC<AddExamViewProps> = ({ onSaveExam }) => {
       )}
 
       {/* OPTION B: MANUAL FORM */}
-      {activeTab === 'manual' && (
+      {(activeTab === 'manual' || examToEdit) && (
         <motion.form
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -287,25 +356,23 @@ export const AddExamView: React.FC<AddExamViewProps> = ({ onSaveExam }) => {
           className="p-6 rounded-3xl bg-neutral-950 border border-neutral-800 space-y-6"
         >
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* Subject */}
             <div className="space-y-1.5">
               <label className="block text-xs font-mono font-medium text-neutral-300">SUBJECT NAME *</label>
               <input
                 type="text"
                 required
-                placeholder="e.g. Formal Language & Automata"
+                placeholder="e.g. Data Structures & Algorithms"
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
                 className="w-full px-3.5 py-2.5 rounded-xl bg-neutral-900 border border-neutral-800 text-white placeholder-neutral-600 text-sm focus:outline-none focus:border-white transition-colors"
               />
             </div>
 
-            {/* Course Code */}
             <div className="space-y-1.5">
               <label className="block text-xs font-mono font-medium text-neutral-300">COURSE CODE</label>
               <input
                 type="text"
-                placeholder="e.g. 21CSC301T"
+                placeholder="e.g. 21CSC303T"
                 value={courseCode}
                 onChange={(e) => setCourseCode(e.target.value)}
                 className="w-full px-3.5 py-2.5 rounded-xl bg-neutral-900 border border-neutral-800 text-white placeholder-neutral-600 text-sm focus:outline-none focus:border-white transition-colors"
@@ -313,7 +380,6 @@ export const AddExamView: React.FC<AddExamViewProps> = ({ onSaveExam }) => {
             </div>
           </div>
 
-          {/* Exam Type Buttons */}
           <div className="space-y-2">
             <label className="block text-xs font-mono font-medium text-neutral-300">EXAM TYPE</label>
             <div className="flex flex-wrap gap-2">
@@ -334,7 +400,6 @@ export const AddExamView: React.FC<AddExamViewProps> = ({ onSaveExam }) => {
             </div>
           </div>
 
-          {/* Date & Time */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="space-y-1.5">
               <label className="block text-xs font-mono font-medium text-neutral-300">EXAM DATE *</label>
@@ -368,7 +433,6 @@ export const AddExamView: React.FC<AddExamViewProps> = ({ onSaveExam }) => {
             </div>
           </div>
 
-          {/* Venue & Mode */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <label className="block text-xs font-mono font-medium text-neutral-300">VENUE / ROOM</label>
@@ -406,12 +470,11 @@ export const AddExamView: React.FC<AddExamViewProps> = ({ onSaveExam }) => {
             </div>
           </div>
 
-          {/* Portion & Pattern */}
           <div className="space-y-1.5">
             <label className="block text-xs font-mono font-medium text-neutral-300">SYLLABUS PORTION</label>
             <textarea
               rows={3}
-              placeholder="e.g. Unit 1 — till NFA, DFA Construction"
+              placeholder="e.g. Units 1 & 2 complete syllabus"
               value={portion}
               onChange={(e) => setPortion(e.target.value)}
               className="w-full px-3.5 py-2.5 rounded-xl bg-neutral-900 border border-neutral-800 text-white placeholder-neutral-600 text-sm focus:outline-none focus:border-white transition-colors resize-none"
@@ -467,7 +530,7 @@ export const AddExamView: React.FC<AddExamViewProps> = ({ onSaveExam }) => {
             disabled={isSubmitting}
             icon={isSubmitting ? <Loader2 size={18} className="animate-spin" /> : undefined}
           >
-            {isSubmitting ? 'Saving Exam...' : 'Save Exam'}
+            {isSubmitting ? (examToEdit ? 'Updating Exam...' : 'Saving Exam...') : (examToEdit ? 'Update Exam' : 'Save Exam')}
           </Button>
         </motion.form>
       )}

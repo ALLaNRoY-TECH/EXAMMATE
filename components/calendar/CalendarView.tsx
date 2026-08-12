@@ -2,35 +2,84 @@
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Clock, MapPin, ArrowRight } from 'lucide-react';
-import { Exam } from '@/types/exam';
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Clock, MapPin, ArrowRight, Users } from 'lucide-react';
+import { ExamWithGroup } from '@/context/ExamContext';
 import { Badge } from '@/components/ui/Badge';
 
 interface CalendarViewProps {
-  exams: Exam[];
-  onSelectExam: (exam: Exam) => void;
+  exams: ExamWithGroup[];
+  onSelectExam: (exam: ExamWithGroup) => void;
 }
 
 export const CalendarView: React.FC<CalendarViewProps> = ({ exams, onSelectExam }) => {
-  const [selectedDate, setSelectedDate] = useState<string>('2026-08-20');
-  const [currentMonth] = useState({ year: 2026, month: 7 }); // August 2026 (0-indexed: 7)
-
-  const daysInMonth = 31;
-  const startDayOfWeek = 6; // Aug 1, 2026 is Saturday (0=Sun, 6=Sat)
-  const dayNames = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
-
-  // Map exams by date string YYYY-MM-DD
-  const examMap = new Map<string, Exam>();
-  exams.forEach((exam) => {
-    examMap.set(exam.date, exam);
+  const today = new Date();
+  const [currentDate, setCurrentDate] = useState<{ year: number; month: number }>({
+    year: today.getFullYear(),
+    month: today.getMonth(), // 0-indexed
   });
 
-  const selectedExam = examMap.get(selectedDate);
+  const monthNames = [
+    'JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE',
+    'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER'
+  ];
 
-  const getFormattedDateString = (day: number) => {
-    const formattedDay = day < 10 ? `0${day}` : `${day}`;
-    return `2026-08-${formattedDay}`;
+  const monthShortNames = [
+    'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN',
+    'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'
+  ];
+
+  const dayNames = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+
+  // Dynamic calculation of days in month & starting weekday
+  const daysInMonth = new Date(currentDate.year, currentDate.month + 1, 0).getDate();
+  const startDayOfWeek = new Date(currentDate.year, currentDate.month, 1).getDay();
+
+  // Helper for formatting YYYY-MM-DD
+  const formatYearMonthDay = (day: number) => {
+    const m = (currentDate.month + 1).toString().padStart(2, '0');
+    const d = day.toString().padStart(2, '0');
+    return `${currentDate.year}-${m}-${d}`;
   };
+
+  const [selectedDate, setSelectedDate] = useState<string>(formatYearMonthDay(today.getDate()));
+
+  // Map exams by date YYYY-MM-DD
+  const examMap = new Map<string, ExamWithGroup[]>();
+  exams.forEach((exam) => {
+    const list = examMap.get(exam.date) || [];
+    list.push(exam);
+    examMap.set(exam.date, list);
+  });
+
+  const examsOnSelectedDate = examMap.get(selectedDate) || [];
+  const selectedExam = examsOnSelectedDate[0] || null;
+
+  const handlePrevMonth = () => {
+    setCurrentDate((prev) => {
+      if (prev.month === 0) {
+        return { year: prev.year - 1, month: 11 };
+      }
+      return { ...prev, month: prev.month - 1 };
+    });
+  };
+
+  const handleNextMonth = () => {
+    setCurrentDate((prev) => {
+      if (prev.month === 11) {
+        return { year: prev.year + 1, month: 0 };
+      }
+      return { ...prev, month: prev.month + 1 };
+    });
+  };
+
+  const monthlyExamsCount = exams.filter((e) => {
+    if (!e.date) return false;
+    const parts = e.date.split('-');
+    if (parts.length !== 3) return false;
+    const y = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10) - 1;
+    return y === currentDate.year && m === currentDate.month;
+  }).length;
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
@@ -39,25 +88,29 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ exams, onSelectExam 
         <div>
           <h2 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
             <CalendarIcon className="text-white" size={22} />
-            AUGUST 2026
+            {monthNames[currentDate.month]} {currentDate.year}
           </h2>
           <p className="text-xs text-neutral-400 mt-1 font-mono">
-            {exams.length} exams scheduled this month
+            {monthlyExamsCount} {monthlyExamsCount === 1 ? 'exam' : 'exams'} scheduled across your groups this month
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           <button
+            type="button"
             className="px-3 py-1.5 rounded-lg bg-neutral-900 border border-neutral-800 text-neutral-400 hover:text-white hover:border-neutral-700 transition-colors text-xs font-mono flex items-center gap-1 cursor-pointer"
-            onClick={() => {}}
+            onClick={handlePrevMonth}
           >
             <ChevronLeft size={14} />
             PREV
           </button>
-          <span className="text-xs font-mono text-neutral-500 px-2">AUG</span>
+          <span className="text-xs font-mono text-neutral-400 font-bold px-2">
+            {monthShortNames[currentDate.month]}
+          </span>
           <button
+            type="button"
             className="px-3 py-1.5 rounded-lg bg-neutral-900 border border-neutral-800 text-neutral-400 hover:text-white hover:border-neutral-700 transition-colors text-xs font-mono flex items-center gap-1 cursor-pointer"
-            onClick={() => {}}
+            onClick={handleNextMonth}
           >
             NEXT
             <ChevronRight size={14} />
@@ -84,10 +137,11 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ exams, onSelectExam 
         {/* Month Days */}
         {Array.from({ length: daysInMonth }).map((_, i) => {
           const dayNumber = i + 1;
-          const dateStr = getFormattedDateString(dayNumber);
-          const hasExam = examMap.has(dateStr);
+          const dateStr = formatYearMonthDay(dayNumber);
+          const dayExams = examMap.get(dateStr) || [];
+          const hasExam = dayExams.length > 0;
           const isSelected = selectedDate === dateStr;
-          const examOnDay = examMap.get(dateStr);
+          const examOnDay = dayExams[0];
 
           return (
             <motion.button
@@ -103,7 +157,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ exams, onSelectExam 
                   : 'bg-neutral-950/60 border-neutral-900 text-neutral-400 hover:border-neutral-800 hover:bg-neutral-900/50'
               }`}
             >
-              {/* Animated Selected Background Glow */}
+              {/* Animated Selected Background Border */}
               {isSelected && (
                 <motion.div
                   layoutId="selectedCalendarDay"
@@ -112,7 +166,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ exams, onSelectExam 
                 />
               )}
 
-              {/* Day Number */}
+              {/* Day Number & Indicator */}
               <div className="w-full flex items-center justify-between">
                 <span
                   className={`font-mono text-sm md:text-base font-bold ${
@@ -122,24 +176,16 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ exams, onSelectExam 
                   {dayNumber < 10 ? `0${dayNumber}` : dayNumber}
                 </span>
 
-                {/* Exam Dot Indicator */}
+                {/* Exam Indicator */}
                 {hasExam && (
-                  <span
-                    className={`w-2 h-2 rounded-full ${
-                      examOnDay?.accentColor === 'amber'
-                        ? 'bg-amber-400'
-                        : examOnDay?.accentColor === 'purple'
-                        ? 'bg-purple-400'
-                        : 'bg-blue-400'
-                    } animate-pulse`}
-                  />
+                  <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
                 )}
               </div>
 
-              {/* Mini Label for Mobile/Desktop */}
+              {/* Mini Exam Badge for Cell */}
               {hasExam && (
-                <div className="w-full truncate text-[10px] font-mono font-semibold text-neutral-300 bg-neutral-900/80 px-1 py-0.5 rounded border border-neutral-800">
-                  {examOnDay?.subject}
+                <div className="w-full truncate text-[10px] font-mono font-semibold text-neutral-300 bg-neutral-900/90 px-1 py-0.5 rounded border border-neutral-800 flex items-center gap-1">
+                  <span className="truncate">{examOnDay.subject}</span>
                 </div>
               )}
             </motion.button>
@@ -147,48 +193,58 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ exams, onSelectExam 
         })}
       </div>
 
-      {/* Animated Selected Day Drawer Panel */}
+      {/* Selected Day Drawer Panel */}
       <div className="pt-4">
         <AnimatePresence mode="wait">
-          {selectedExam ? (
-            <motion.div
-              key={selectedExam.id}
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ type: 'spring', stiffness: 350, damping: 25 }}
-              onClick={() => onSelectExam(selectedExam)}
-              className="p-5 md:p-6 rounded-2xl bg-neutral-950 border border-neutral-800 hover:border-neutral-700 transition-all cursor-pointer group shadow-xl"
-            >
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-mono font-bold text-blue-400 uppercase tracking-widest">
-                      EXAM SCHEDULED
-                    </span>
-                    <Badge variant={selectedExam.accentColor || 'blue'}>{selectedExam.examType}</Badge>
-                  </div>
-                  <h3 className="text-2xl font-extrabold text-white">{selectedExam.subject}</h3>
-                  <p className="text-xs font-mono text-neutral-400">{selectedExam.courseCode}</p>
-                </div>
+          {examsOnSelectedDate.length > 0 ? (
+            <div className="space-y-3">
+              {examsOnSelectedDate.map((exam) => (
+                <motion.div
+                  key={exam.id}
+                  initial={{ opacity: 0, y: 15 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ type: 'spring', stiffness: 350, damping: 25 }}
+                  onClick={() => onSelectExam(exam)}
+                  className="p-5 md:p-6 rounded-2xl bg-neutral-950 border border-neutral-800 hover:border-neutral-700 transition-all cursor-pointer group shadow-xl"
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono font-bold text-blue-400 uppercase tracking-widest">
+                          EXAM SCHEDULED
+                        </span>
+                        <Badge variant={exam.accentColor || 'blue'}>{exam.examType}</Badge>
+                        {exam.groupName && (
+                          <span className="text-xs font-mono text-purple-400 bg-purple-950/60 px-2 py-0.5 rounded border border-purple-500/30 flex items-center gap-1">
+                            <Users size={12} />
+                            {exam.groupName}
+                          </span>
+                        )}
+                      </div>
+                      <h3 className="text-2xl font-extrabold text-white">{exam.subject}</h3>
+                      <p className="text-xs font-mono text-neutral-400">{exam.courseCode}</p>
+                    </div>
 
-                <div className="flex flex-col sm:items-end gap-2">
-                  <div className="flex items-center gap-2 text-sm text-neutral-300 font-mono">
-                    <Clock size={16} className="text-neutral-500" />
-                    <span>{selectedExam.startTime} – {selectedExam.endTime}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-neutral-400">
-                    <MapPin size={16} className="text-neutral-500" />
-                    <span>{selectedExam.venue}</span>
-                  </div>
-                </div>
+                    <div className="flex flex-col sm:items-end gap-2">
+                      <div className="flex items-center gap-2 text-sm text-neutral-300 font-mono">
+                        <Clock size={16} className="text-neutral-500" />
+                        <span>{exam.startTime} – {exam.endTime}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-sm text-neutral-400">
+                        <MapPin size={16} className="text-neutral-500" />
+                        <span>{exam.venue}</span>
+                      </div>
+                    </div>
 
-                <div className="flex items-center gap-1 text-sm font-semibold text-white group-hover:translate-x-1 transition-transform self-end sm:self-center">
-                  <span>View Full Portion</span>
-                  <ArrowRight size={16} />
-                </div>
-              </div>
-            </motion.div>
+                    <div className="flex items-center gap-1 text-sm font-semibold text-white group-hover:translate-x-1 transition-transform self-end sm:self-center">
+                      <span>View Full Portion</span>
+                      <ArrowRight size={16} />
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
           ) : (
             <motion.div
               key="empty-day"

@@ -2,18 +2,24 @@
 
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Calendar as CalendarIcon, Clock, MapPin, ChevronRight, Sparkles } from 'lucide-react';
-import { Exam } from '@/types/exam';
+import { Calendar as CalendarIcon, Clock, MapPin, ChevronRight, Users } from 'lucide-react';
+import { ExamWithGroup } from '@/context/ExamContext';
 import { Badge } from '@/components/ui/Badge';
+import { getExamCountdown } from '@/lib/utils/examCountdown';
 
 interface NextExamCardProps {
-  exam: Exam;
-  onSelect: (exam: Exam) => void;
+  exam: ExamWithGroup;
+  onSelect: (exam: ExamWithGroup) => void;
 }
 
 export const NextExamCard: React.FC<NextExamCardProps> = ({ exam, onSelect }) => {
-  // Calculate days remaining dynamically or mock
-  const daysLeft = 9; // For FLA August 20, 2026
+  const countdown = getExamCountdown(exam.date, exam.startTime);
+
+  const formattedDate = new Date(exam.date).toLocaleDateString('en-US', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  }).toUpperCase();
 
   return (
     <motion.div
@@ -34,15 +40,21 @@ export const NextExamCard: React.FC<NextExamCardProps> = ({ exam, onSelect }) =>
           <span className="text-xs font-mono font-semibold tracking-wider text-neutral-400 uppercase">
             NEXT EXAM
           </span>
+          {exam.groupName && (
+            <span className="text-xs font-mono text-purple-400 bg-purple-950/60 px-2 py-0.5 rounded border border-purple-500/30 flex items-center gap-1">
+              <Users size={12} />
+              {exam.groupName}
+            </span>
+          )}
         </div>
         <Badge variant="blue" size="md">
           {exam.examType}
         </Badge>
       </div>
 
-      {/* Main Grid: Subject & Giant Display Countdown */}
+      {/* Main Grid: Subject & Display Countdown */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-center">
-        {/* Subject Details (Left 7 Cols) */}
+        {/* Subject Details */}
         <div className="md:col-span-7 space-y-3">
           <div className="flex items-baseline gap-3">
             <h2 className="text-3xl md:text-4xl font-extrabold text-white tracking-tight">
@@ -56,7 +68,7 @@ export const NextExamCard: React.FC<NextExamCardProps> = ({ exam, onSelect }) =>
           <div className="space-y-2 pt-2">
             <div className="flex items-center gap-2 text-sm text-neutral-300">
               <CalendarIcon size={16} className="text-neutral-500 shrink-0" />
-              <span className="font-semibold text-white">20 AUGUST 2026</span>
+              <span className="font-semibold text-white">{formattedDate}</span>
             </div>
 
             <div className="flex items-center gap-2 text-sm text-neutral-400">
@@ -71,21 +83,22 @@ export const NextExamCard: React.FC<NextExamCardProps> = ({ exam, onSelect }) =>
           </div>
         </div>
 
-        {/* Giant Number Countdown Display (Right 5 Cols) */}
+        {/* Dynamic Countdown Display */}
         <div className="md:col-span-5 flex flex-col items-start md:items-end justify-center pt-4 md:pt-0 border-t md:border-t-0 md:border-l border-neutral-800/80 md:pl-8">
           <div className="flex items-baseline gap-2">
-            {/* The Huge Display Digits with Vibrant Blue Accent */}
             <span className="text-6xl md:text-7xl font-black tracking-tighter text-blue-500 tabular-nums drop-shadow-md">
-              0{daysLeft}
+              {countdown.isToday ? 'TODAY' : countdown.isCompleted ? 'DONE' : countdown.daysLeft < 10 ? `0${countdown.daysLeft}` : countdown.daysLeft}
             </span>
-            <div className="flex flex-col">
-              <span className="text-xs font-mono font-bold tracking-widest text-neutral-400 uppercase">
-                DAYS
-              </span>
-              <span className="text-xs font-mono font-bold tracking-widest text-neutral-500 uppercase">
-                LEFT
-              </span>
-            </div>
+            {!countdown.isToday && !countdown.isCompleted && (
+              <div className="flex flex-col">
+                <span className="text-xs font-mono font-bold tracking-widest text-neutral-400 uppercase">
+                  DAYS
+                </span>
+                <span className="text-xs font-mono font-bold tracking-widest text-neutral-500 uppercase">
+                  LEFT
+                </span>
+              </div>
+            )}
           </div>
           <span className="text-[11px] text-neutral-500 mt-2 font-mono">
             Prep Status: On Track

@@ -2,18 +2,18 @@
 
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Clock, MapPin, ChevronRight } from 'lucide-react';
-import { Exam } from '@/types/exam';
+import { Clock, MapPin, ChevronRight, Users } from 'lucide-react';
+import { ExamWithGroup } from '@/context/ExamContext';
 import { Badge } from '@/components/ui/Badge';
+import { getExamCountdown } from '@/lib/utils/examCountdown';
 
 interface ExamCardProps {
-  exam: Exam;
-  daysLeft: number;
-  onSelect: (exam: Exam) => void;
+  exam: ExamWithGroup;
+  onSelect: (exam: ExamWithGroup) => void;
   index?: number;
 }
 
-export const ExamCard: React.FC<ExamCardProps> = ({ exam, daysLeft, onSelect, index = 0 }) => {
+export const ExamCard: React.FC<ExamCardProps> = ({ exam, onSelect, index = 0 }) => {
   const accentClasses = {
     blue: 'text-blue-400 group-hover:text-blue-300',
     amber: 'text-amber-400 group-hover:text-amber-300',
@@ -24,6 +24,7 @@ export const ExamCard: React.FC<ExamCardProps> = ({ exam, daysLeft, onSelect, in
   };
 
   const accentColor = exam.accentColor || 'blue';
+  const countdown = getExamCountdown(exam.date, exam.startTime);
 
   return (
     <motion.div
@@ -35,9 +36,17 @@ export const ExamCard: React.FC<ExamCardProps> = ({ exam, daysLeft, onSelect, in
       className="p-5 rounded-2xl bg-neutral-950 border border-neutral-800 hover:border-neutral-700 transition-all cursor-pointer group flex flex-col justify-between"
     >
       <div>
-        {/* Top Header: Badge & Date */}
+        {/* Top Header: Badge & Date & Group indicator */}
         <div className="flex items-center justify-between mb-3">
-          <Badge variant={accentColor as any}>{exam.examType}</Badge>
+          <div className="flex items-center gap-1.5">
+            <Badge variant={accentColor as any}>{exam.examType}</Badge>
+            {exam.groupName && (
+              <span className="text-[10px] font-mono text-neutral-400 bg-neutral-900 px-2 py-0.5 rounded border border-neutral-800 flex items-center gap-1">
+                <Users size={10} className="text-purple-400" />
+                {exam.groupName}
+              </span>
+            )}
+          </div>
           <span className="text-xs font-mono text-neutral-400 bg-neutral-900 px-2 py-1 rounded border border-neutral-800">
             {new Date(exam.date).toLocaleDateString('en-US', { day: '2-digit', month: 'short' }).toUpperCase()}
           </span>
@@ -57,11 +66,13 @@ export const ExamCard: React.FC<ExamCardProps> = ({ exam, daysLeft, onSelect, in
         <div className="flex items-baseline justify-between mb-2">
           <div className="flex items-baseline gap-1.5">
             <span className={`text-2xl font-black font-mono tabular-nums ${accentClasses[accentColor]}`}>
-              {daysLeft < 10 ? `0${daysLeft}` : daysLeft}
+              {countdown.isToday ? 'TODAY' : countdown.isCompleted ? 'DONE' : countdown.daysLeft < 10 ? `0${countdown.daysLeft}` : countdown.daysLeft}
             </span>
-            <span className="text-[10px] font-mono font-semibold text-neutral-400 uppercase">
-              days left
-            </span>
+            {!countdown.isToday && !countdown.isCompleted && (
+              <span className="text-[10px] font-mono font-semibold text-neutral-400 uppercase">
+                {countdown.daysLeft === 1 ? 'day left' : 'days left'}
+              </span>
+            )}
           </div>
 
           <ChevronRight size={16} className="text-neutral-600 group-hover:text-white group-hover:translate-x-1 transition-all" />

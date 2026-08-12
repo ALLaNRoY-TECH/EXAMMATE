@@ -1,11 +1,14 @@
 'use client';
 
 import React from 'react';
+import Image from 'next/image';
 import { motion } from 'framer-motion';
 import { Home, Calendar, PlusCircle, Settings, Users, AlertCircle, LogIn, LogOut } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useGroup } from '@/context/GroupContext';
+import { useExam } from '@/context/ExamContext';
 import { GroupSelector } from '@/components/groups/GroupSelector';
+import { getExamCountdown } from '@/lib/utils/examCountdown';
 
 export type NavTab = 'home' | 'calendar' | 'add' | 'settings';
 
@@ -28,6 +31,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const { user, profile, signOut } = useAuth();
   const { activeGroup } = useGroup();
+  const { activeGroupExams } = useExam();
 
   const navItems = [
     { id: 'home' as NavTab, label: 'Overview', icon: Home, badge: examCount },
@@ -36,19 +40,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'settings' as NavTab, label: 'Settings', icon: Settings },
   ];
 
+  const nextActiveExam = activeGroupExams.find(
+    (e) => !getExamCountdown(e.date, e.startTime).isCompleted
+  );
+  const nextExamCountdown = nextActiveExam
+    ? getExamCountdown(nextActiveExam.date, nextActiveExam.startTime)
+    : null;
+
   return (
     <aside className="hidden md:flex flex-col w-64 h-screen fixed left-0 top-0 bg-[#08090e]/90 backdrop-blur-xl border-r border-white/10 p-5 z-40">
       {/* Brand Logo Header */}
       <div className="mb-6 px-2">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-white text-black font-black text-lg flex items-center justify-center shadow-glow">
-            E
-          </div>
-          <div>
-            <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-1">
-              Exam<span className="text-blue-400">Mate</span>
-              <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse ml-1"></span>
-            </h1>
+        <div className="flex items-center gap-3">
+          <div className="relative w-36 h-10 shrink-0">
+            <Image
+              src="/logo.png"
+              alt="ExamMate Logo"
+              fill
+              className="object-contain object-left"
+              priority
+            />
           </div>
         </div>
         <p className="text-[11px] text-neutral-400 mt-1 font-medium tracking-tight">
@@ -105,11 +116,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
         })}
       </nav>
 
-      {/* Alert Pill */}
-      {activeGroup && (
+      {/* Alert Pill with Dynamic Countdown */}
+      {activeGroup && nextActiveExam && nextExamCountdown && (
         <div className="mb-4 p-2.5 rounded-xl bg-amber-950/30 border border-amber-500/20 flex items-center gap-2 text-[11px] text-amber-400">
           <AlertCircle size={14} className="shrink-0" />
-          <span className="truncate">{activeGroup.name} · Next FT-1 in 9d</span>
+          <span className="truncate">
+            {activeGroup.name} · Next {nextActiveExam.examType} in {nextExamCountdown.statusText}
+          </span>
         </div>
       )}
 

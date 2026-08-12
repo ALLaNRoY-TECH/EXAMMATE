@@ -155,14 +155,20 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = '';
 
--- Check if caller is the creator/admin of a group
+-- Check if caller is an admin of a group (role = 'admin' in group_members or created_by)
 CREATE OR REPLACE FUNCTION public.is_group_admin(p_group_id UUID)
 RETURNS BOOLEAN AS $$
 BEGIN
   RETURN EXISTS (
     SELECT 1 
-    FROM public.groups 
-    WHERE id = p_group_id 
+    FROM public.group_members 
+    WHERE group_id = p_group_id 
+      AND user_id = auth.uid()
+      AND role = 'admin'
+  ) OR EXISTS (
+    SELECT 1
+    FROM public.groups
+    WHERE id = p_group_id
       AND created_by = auth.uid()
   );
 END;
@@ -267,12 +273,11 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = '';
 
 
--- RPC 3: Remove Member (Group Leader Control)
+-- RPC 3: Remove Member (Group Admin Control)
 CREATE OR REPLACE FUNCTION public.remove_group_member(p_group_id UUID, p_target_user_id UUID)
 RETURNS BOOLEAN AS $$
 DECLARE
   v_caller_id UUID;
-  v_is_admin BOOLEAN;
 BEGIN
   v_caller_id := auth.uid();
   IF v_caller_id IS NULL THEN
@@ -283,20 +288,58 @@ BEGIN
     RAISE EXCEPTION 'Group admin cannot remove themselves using member removal';
   END IF;
 
-  v_is_admin := public.is_group_admin(p_group_id);
-  IF NOT v_is_admin THEN
-    RAISE EXCEPTION 'Only the group admin can remove members';
-  END IF;
-
-  IF EXISTS (
-    SELECT 1 FROM public.group_members
-    WHERE group_id = p_group_id AND user_id = p_target_user_id AND role = 'admin'
-  ) THEN
-    RAISE EXCEPTION 'Cannot remove group admin';
+  IF NOT public.is_group_admin(p_group_id) THEN
+    RAISE EXCEPTION 'Only group admins can remove members';
   END IF;
 
   DELETE FROM public.group_members
   WHERE group_id = p_group_id AND user_id = p_target_user_id;
+
+  RETURN TRUE;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = '';
+
+
+-- RPC 4: Promote Group Member to Admin (Group Admin Control)
+CREATE OR REPLACE FUNCTION public.promote_group_member(p_group_id UUID, p_target_user_id UUID)
+RETURNS BOOLEAN AS $$
+DECLARE
+  v_caller_id UUID;
+BEGIN
+  v_caller_id := auth.uid();
+  IF v_caller_id IS NULL THEN
+    RAISE EXCEPTION 'Authentication required';
+  END IF;
+
+  IF NOT public.is_group_admin(p_group_id) THEN
+    RAISE EXCEPTION 'Only group admins can promote members';
+  END IF;
+
+  UPDATE public.group_members
+  SET role = 'admin'
+  WHERE group_id = p_group_id AND user_id = p_target_user_id;
+
+  RETURN TRUE;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = '';
+
+
+-- RPC 5: Delete Group (Group Admin Control with Cascade)
+CREATE OR REPLACE FUNCTION public.delete_group(p_group_id UUID)
+RETURNS BOOLEAN AS $$
+DECLARE
+  v_caller_id UUID;
+BEGIN
+  v_caller_id := auth.uid();
+  IF v_caller_id IS NULL THEN
+    RAISE EXCEPTION 'Authentication required';
+  END IF;
+
+  IF NOT public.is_group_admin(p_group_id) THEN
+    RAISE EXCEPTION 'Only group admins can delete the group';
+  END IF;
+
+  DELETE FROM public.groups WHERE id = p_group_id;
 
   RETURN TRUE;
 END;
@@ -316,6 +359,8 @@ REVOKE EXECUTE ON FUNCTION public.is_group_admin(UUID) FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.create_group(TEXT, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.join_group_by_code(TEXT) FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.remove_group_member(UUID, UUID) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.promote_group_member(UUID, UUID) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.delete_group(UUID) FROM PUBLIC, anon;
 
 -- Grant permissions only to authenticated users
 GRANT EXECUTE ON FUNCTION public.is_group_member(UUID) TO authenticated;
@@ -324,6 +369,8 @@ GRANT EXECUTE ON FUNCTION public.is_group_admin(UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.create_group(TEXT, TEXT, TEXT, TEXT, TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.join_group_by_code(TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.remove_group_member(UUID, UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.promote_group_member(UUID, UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.delete_group(UUID) TO authenticated;
 
 
 -- --------------------------------------------------------------------
@@ -361,13 +408,13 @@ DROP POLICY IF EXISTS "Groups update policy" ON public.groups;
 CREATE POLICY "Groups update policy"
   ON public.groups FOR UPDATE
   TO authenticated
-  USING (created_by = auth.uid());
+  USING (public.is_group_admin(id));
 
 DROP POLICY IF EXISTS "Groups delete policy" ON public.groups;
 CREATE POLICY "Groups delete policy"
   ON public.groups FOR DELETE
   TO authenticated
-  USING (created_by = auth.uid());
+  USING (public.is_group_admin(id));
 
 -- Group Members Policies
 DROP POLICY IF EXISTS "Group members read policy" ON public.group_members;
@@ -376,6 +423,22 @@ CREATE POLICY "Group members read policy"
   TO authenticated
   USING (
     user_id = auth.uid() OR public.is_group_member(group_id)
+  );
+
+DROP POLICY IF EXISTS "Group members insert policy" ON public.group_members;
+CREATE POLICY "Group members insert policy"
+  ON public.group_members FOR INSERT
+  TO authenticated
+  WITH CHECK (
+    user_id = auth.uid() OR public.is_group_admin(group_id)
+  );
+
+DROP POLICY IF EXISTS "Group members update policy" ON public.group_members;
+CREATE POLICY "Group members update policy"
+  ON public.group_members FOR UPDATE
+  TO authenticated
+  USING (
+    public.is_group_admin(group_id)
   );
 
 DROP POLICY IF EXISTS "Group members delete policy" ON public.group_members;
@@ -430,7 +493,7 @@ CREATE POLICY "Exams insert policy"
   ON public.exams FOR INSERT
   TO authenticated
   WITH CHECK (
-    public.is_group_member(group_id) AND created_by = auth.uid()
+    public.is_group_admin(group_id) AND created_by = auth.uid()
   );
 
 DROP POLICY IF EXISTS "Exams update policy" ON public.exams;
@@ -438,7 +501,7 @@ CREATE POLICY "Exams update policy"
   ON public.exams FOR UPDATE
   TO authenticated
   USING (
-    public.is_group_member(group_id)
+    public.is_group_admin(group_id)
   );
 
 DROP POLICY IF EXISTS "Exams delete policy" ON public.exams;
@@ -446,7 +509,7 @@ CREATE POLICY "Exams delete policy"
   ON public.exams FOR DELETE
   TO authenticated
   USING (
-    created_by = auth.uid() OR public.is_group_admin(group_id)
+    public.is_group_admin(group_id)
   );
 
 -- --------------------------------------------------------------------
@@ -467,8 +530,104 @@ BEGIN
   END IF;
 END $$;
 
+
 -- --------------------------------------------------------------------
--- 11. RESET UTILITY (RUN IN SUPABASE SQL EDITOR TO RESET ALL GROUPS & EXAMS)
+-- 11. WEB PUSH NOTIFICATION TABLES & POLICIES
 -- --------------------------------------------------------------------
--- TRUNCATE TABLE public.exams, public.group_members, public.groups CASCADE;
+
+-- Push Subscriptions Table
+CREATE TABLE IF NOT EXISTS public.push_subscriptions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  endpoint TEXT UNIQUE NOT NULL,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  user_agent TEXT,
+  created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT now() NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user_id ON public.push_subscriptions(user_id);
+ALTER TABLE public.push_subscriptions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Push subscriptions select policy" ON public.push_subscriptions;
+CREATE POLICY "Push subscriptions select policy"
+  ON public.push_subscriptions FOR SELECT
+  TO authenticated
+  USING (user_id = auth.uid());
+
+DROP POLICY IF EXISTS "Push subscriptions insert policy" ON public.push_subscriptions;
+CREATE POLICY "Push subscriptions insert policy"
+  ON public.push_subscriptions FOR INSERT
+  TO authenticated
+  WITH CHECK (user_id = auth.uid());
+
+DROP POLICY IF EXISTS "Push subscriptions update policy" ON public.push_subscriptions;
+CREATE POLICY "Push subscriptions update policy"
+  ON public.push_subscriptions FOR UPDATE
+  TO authenticated
+  USING (user_id = auth.uid());
+
+DROP POLICY IF EXISTS "Push subscriptions delete policy" ON public.push_subscriptions;
+CREATE POLICY "Push subscriptions delete policy"
+  ON public.push_subscriptions FOR DELETE
+  TO authenticated
+  USING (user_id = auth.uid());
+
+
+-- User Notification Preferences Table
+CREATE TABLE IF NOT EXISTS public.notification_preferences (
+  user_id UUID PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
+  three_days BOOLEAN DEFAULT true NOT NULL,
+  one_day BOOLEAN DEFAULT true NOT NULL,
+  exam_day BOOLEAN DEFAULT true NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT now() NOT NULL
+);
+
+ALTER TABLE public.notification_preferences ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Notification preferences select policy" ON public.notification_preferences;
+CREATE POLICY "Notification preferences select policy"
+  ON public.notification_preferences FOR SELECT
+  TO authenticated
+  USING (user_id = auth.uid());
+
+DROP POLICY IF EXISTS "Notification preferences insert policy" ON public.notification_preferences;
+CREATE POLICY "Notification preferences insert policy"
+  ON public.notification_preferences FOR INSERT
+  TO authenticated
+  WITH CHECK (user_id = auth.uid());
+
+DROP POLICY IF EXISTS "Notification preferences update policy" ON public.notification_preferences;
+CREATE POLICY "Notification preferences update policy"
+  ON public.notification_preferences FOR UPDATE
+  TO authenticated
+  USING (user_id = auth.uid());
+
+
+-- Notification Deliveries (Deduplication) Table
+CREATE TABLE IF NOT EXISTS public.notification_deliveries (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  exam_id UUID NOT NULL REFERENCES public.exams(id) ON DELETE CASCADE,
+  notification_type TEXT NOT NULL CHECK (notification_type IN ('3_days', '1_day', 'exam_day', 'new_exam', 'updated_exam', 'deleted_exam')),
+  sent_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+  UNIQUE(user_id, exam_id, notification_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_notification_deliveries_user_id ON public.notification_deliveries(user_id);
+CREATE INDEX IF NOT EXISTS idx_notification_deliveries_exam_id ON public.notification_deliveries(exam_id);
+ALTER TABLE public.notification_deliveries ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Notification deliveries select policy" ON public.notification_deliveries;
+CREATE POLICY "Notification deliveries select policy"
+  ON public.notification_deliveries FOR SELECT
+  TO authenticated
+  USING (user_id = auth.uid());
+
+-- --------------------------------------------------------------------
+-- 12. RESET UTILITY (RUN IN SUPABASE SQL EDITOR TO RESET ALL GROUPS & EXAMS)
+-- --------------------------------------------------------------------
+-- TRUNCATE TABLE public.exams, public.group_members, public.groups, public.push_subscriptions, public.notification_deliveries CASCADE;
+
 

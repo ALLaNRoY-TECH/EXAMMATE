@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { Users, ShieldCheck, UserX, AlertTriangle, Loader2 } from 'lucide-react';
+import { Users, ShieldCheck, UserX, AlertTriangle, Loader2, ShieldAlert, Check } from 'lucide-react';
 import { useGroup } from '@/context/GroupContext';
 import { useAuth } from '@/context/AuthContext';
 import { GroupMember } from '@/types/database';
@@ -14,13 +14,15 @@ interface GroupMembersModalProps {
 }
 
 export const GroupMembersModal: React.FC<GroupMembersModalProps> = ({ isOpen, onClose }) => {
-  const { activeGroup, getGroupMembers, removeMember } = useGroup();
+  const { activeGroup, getGroupMembers, removeMember, promoteMember } = useGroup();
   const { user } = useAuth();
 
   const [members, setMembers] = useState<GroupMember[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [targetRemoveMember, setTargetRemoveMember] = useState<GroupMember | null>(null);
+  const [targetPromoteMember, setTargetPromoteMember] = useState<GroupMember | null>(null);
   const [isRemoving, setIsRemoving] = useState<boolean>(false);
+  const [isPromoting, setIsPromoting] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string>('');
 
   const isGroupAdmin = activeGroup?.role === 'admin' || activeGroup?.created_by === user?.id;
@@ -52,6 +54,23 @@ export const GroupMembersModal: React.FC<GroupMembersModalProps> = ({ isOpen, on
       setTargetRemoveMember(null);
     }
     setIsRemoving(false);
+  };
+
+  const handleConfirmPromote = async () => {
+    if (!activeGroup || !targetPromoteMember) return;
+    setIsPromoting(true);
+    setErrorMsg('');
+
+    const { error } = await promoteMember(activeGroup.id, targetPromoteMember.user_id);
+    if (error) {
+      setErrorMsg(error);
+    } else {
+      setMembers((prev) =>
+        prev.map((m) => (m.user_id === targetPromoteMember.user_id ? { ...m, role: 'admin' } : m))
+      );
+      setTargetPromoteMember(null);
+    }
+    setIsPromoting(false);
   };
 
   return (
@@ -109,7 +128,20 @@ export const GroupMembersModal: React.FC<GroupMembersModalProps> = ({ isOpen, on
                       </span>
                     )}
 
-                    {/* Group Leader Action: Remove Member */}
+                    {/* Admin Actions: Promote to Admin */}
+                    {isGroupAdmin && !isMemberAdmin && !isCurrentUser && (
+                      <button
+                        type="button"
+                        onClick={() => setTargetPromoteMember(m)}
+                        className="px-2 py-1 text-[10px] font-mono font-bold text-blue-300 hover:text-white bg-blue-950/40 hover:bg-blue-900/60 border border-blue-500/30 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+                        title="Promote member to admin"
+                      >
+                        <ShieldCheck size={12} />
+                        <span>Make Admin</span>
+                      </button>
+                    )}
+
+                    {/* Admin Actions: Remove Member */}
                     {isGroupAdmin && !isCurrentUser && !isMemberAdmin && (
                       <button
                         type="button"
@@ -128,7 +160,34 @@ export const GroupMembersModal: React.FC<GroupMembersModalProps> = ({ isOpen, on
         )}
       </div>
 
-      {/* Member Removal Confirmation Popover */}
+      {/* Member Promotion Confirmation Modal */}
+      <Modal isOpen={!!targetPromoteMember} onClose={() => setTargetPromoteMember(null)} title="Promote Member to Admin">
+        <div className="space-y-4">
+          <div className="flex items-center gap-3 p-4 rounded-xl bg-blue-950/40 border border-blue-500/20 text-blue-300 text-sm">
+            <ShieldCheck size={20} className="shrink-0 text-blue-400" />
+            <p>
+              Are you sure you want to make <strong>{targetPromoteMember?.profile?.name}</strong> an Admin in {activeGroup?.name}? Admins can add, edit, and delete exams.
+            </p>
+          </div>
+
+          <div className="flex items-center justify-end gap-3 pt-2">
+            <Button variant="outline" size="sm" onClick={() => setTargetPromoteMember(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={isPromoting}
+              onClick={handleConfirmPromote}
+              icon={isPromoting ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />}
+            >
+              {isPromoting ? 'Promoting...' : 'Confirm Make Admin'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Member Removal Confirmation Modal */}
       <Modal isOpen={!!targetRemoveMember} onClose={() => setTargetRemoveMember(null)} title="Remove Member">
         <div className="space-y-4">
           <div className="flex items-center gap-3 p-4 rounded-xl bg-red-950/40 border border-red-500/20 text-red-300 text-sm">
