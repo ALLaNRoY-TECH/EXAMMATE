@@ -547,6 +547,11 @@ CREATE TABLE IF NOT EXISTS public.push_subscriptions (
   updated_at TIMESTAMPTZ DEFAULT now() NOT NULL
 );
 
+-- Safely add missing columns to push_subscriptions if table existed previously
+ALTER TABLE public.push_subscriptions ADD COLUMN IF NOT EXISTS user_agent TEXT;
+ALTER TABLE public.push_subscriptions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now() NOT NULL;
+ALTER TABLE public.push_subscriptions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now() NOT NULL;
+
 CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user_id ON public.push_subscriptions(user_id);
 ALTER TABLE public.push_subscriptions ENABLE ROW LEVEL SECURITY;
 
@@ -584,6 +589,12 @@ CREATE TABLE IF NOT EXISTS public.notification_preferences (
   updated_at TIMESTAMPTZ DEFAULT now() NOT NULL
 );
 
+-- Safely add missing columns to notification_preferences if table existed previously
+ALTER TABLE public.notification_preferences ADD COLUMN IF NOT EXISTS three_days BOOLEAN DEFAULT true NOT NULL;
+ALTER TABLE public.notification_preferences ADD COLUMN IF NOT EXISTS one_day BOOLEAN DEFAULT true NOT NULL;
+ALTER TABLE public.notification_preferences ADD COLUMN IF NOT EXISTS exam_day BOOLEAN DEFAULT true NOT NULL;
+ALTER TABLE public.notification_preferences ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now() NOT NULL;
+
 ALTER TABLE public.notification_preferences ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Notification preferences select policy" ON public.notification_preferences;
@@ -615,6 +626,9 @@ CREATE TABLE IF NOT EXISTS public.notification_deliveries (
   UNIQUE(user_id, exam_id, notification_type)
 );
 
+-- Safely add missing columns to notification_deliveries if table existed previously
+ALTER TABLE public.notification_deliveries ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ DEFAULT now() NOT NULL;
+
 CREATE INDEX IF NOT EXISTS idx_notification_deliveries_user_id ON public.notification_deliveries(user_id);
 CREATE INDEX IF NOT EXISTS idx_notification_deliveries_exam_id ON public.notification_deliveries(exam_id);
 ALTER TABLE public.notification_deliveries ENABLE ROW LEVEL SECURITY;
@@ -625,9 +639,13 @@ CREATE POLICY "Notification deliveries select policy"
   TO authenticated
   USING (user_id = auth.uid());
 
+-- Reload PostgREST Schema Cache
+NOTIFY pgrst, 'reload schema';
+
 -- --------------------------------------------------------------------
 -- 12. RESET UTILITY (RUN IN SUPABASE SQL EDITOR TO RESET ALL GROUPS & EXAMS)
 -- --------------------------------------------------------------------
 -- TRUNCATE TABLE public.exams, public.group_members, public.groups, public.push_subscriptions, public.notification_deliveries CASCADE;
+
 
 
