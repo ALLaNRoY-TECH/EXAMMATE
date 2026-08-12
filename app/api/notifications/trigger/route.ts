@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { sendWebPush } from '@/lib/push/pushService';
+import { getSupabaseAdmin } from '@/lib/supabase/admin';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || '';
@@ -50,8 +51,23 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Missing type, exam, or groupId' }, { status: 400 });
     }
 
+    // Verify caller is member/admin of the group
+    const { data: membership } = await supabase
+      .from('group_members')
+      .select('role')
+      .eq('group_id', groupId)
+      .eq('user_id', user.id)
+      .single();
+
+    if (!membership) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    // Use admin client for server-side push distribution across group members
+    const adminSupabase = getSupabaseAdmin();
+
     // 1. Fetch group members
-    const { data: members, error: memErr } = await supabase
+    const { data: members, error: memErr } = await adminSupabase
       .from('group_members')
       .select('user_id')
       .eq('group_id', groupId);
@@ -71,7 +87,7 @@ export async function POST(req: Request) {
     }
 
     // 2. Fetch push subscriptions for target user IDs
-    const { data: subs, error: subErr } = await supabase
+    const { data: subs, error: subErr } = await adminSupabase
       .from('push_subscriptions')
       .select('user_id, endpoint, p256dh, auth')
       .in('user_id', targetUserIds);
@@ -118,7 +134,7 @@ export async function POST(req: Request) {
         sentCount++;
         // Log delivery record
         try {
-          await supabase.from('notification_deliveries').upsert(
+          await adminSupabase.from('notification_deliveries').upsert(
             {
               user_id: sub.user_id,
               exam_id: exam.id,
@@ -136,7 +152,7 @@ export async function POST(req: Request) {
     }
 
     if (failedEndpoints.length > 0) {
-      await supabase
+      await adminSupabase
         .from('push_subscriptions')
         .delete()
         .in('endpoint', failedEndpoints);

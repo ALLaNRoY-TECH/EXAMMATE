@@ -531,6 +531,11 @@ BEGIN
 END $$;
 
 
+-- Explicitly GRANT table privileges to authenticated and service_role
+GRANT ALL ON TABLE public.push_subscriptions TO authenticated, service_role;
+GRANT ALL ON TABLE public.notification_preferences TO authenticated, service_role;
+GRANT ALL ON TABLE public.notification_deliveries TO authenticated, service_role;
+
 -- --------------------------------------------------------------------
 -- 11. WEB PUSH NOTIFICATION TABLES & POLICIES
 -- --------------------------------------------------------------------
