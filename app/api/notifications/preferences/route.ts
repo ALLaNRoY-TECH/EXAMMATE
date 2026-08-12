@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { getSupabaseAdmin } from '@/lib/supabase/admin';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || '';
@@ -23,26 +24,27 @@ async function getAuthenticatedUser(req: Request) {
 
   if (!token) return { user: null, error: 'Missing access token' };
 
-  const supabase = createClient(supabaseUrl, supabaseKey, {
+  const authClient = createClient(supabaseUrl, supabaseKey, {
     global: { headers: { Authorization: `Bearer ${token}` } },
   });
 
-  const { data: { user }, error } = await supabase.auth.getUser(token);
+  const { data: { user }, error } = await authClient.auth.getUser(token);
   if (error || !user) {
     return { user: null, error: error?.message || 'Invalid access token' };
   }
 
-  return { user, supabase };
+  return { user };
 }
 
 export async function GET(req: Request) {
   try {
-    const { user, supabase, error: authErr } = await getAuthenticatedUser(req);
-    if (authErr || !user || !supabase) {
+    const { user, error: authErr } = await getAuthenticatedUser(req);
+    if (authErr || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { data, error } = await supabase
+    const adminSupabase = getSupabaseAdmin();
+    const { data, error } = await adminSupabase
       .from('notification_preferences')
       .select('*')
       .eq('user_id', user.id)
@@ -64,14 +66,15 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const { user, supabase, error: authErr } = await getAuthenticatedUser(req);
-    if (authErr || !user || !supabase) {
+    const { user, error: authErr } = await getAuthenticatedUser(req);
+    if (authErr || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const { threeDays, oneDay, examDay } = await req.json();
 
-    const { data, error } = await supabase
+    const adminSupabase = getSupabaseAdmin();
+    const { data, error } = await adminSupabase
       .from('notification_preferences')
       .upsert(
         {

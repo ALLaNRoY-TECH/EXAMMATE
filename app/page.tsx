@@ -35,7 +35,23 @@ function AppContent() {
   const { activeGroup, userGroups } = useGroup();
   const { allUserExams, recentNotification, clearNotification } = useExam();
 
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const hasSeenIntro = localStorage.getItem('exammate_intro_seen');
+      if (!hasSeenIntro) {
+        setIsLoading(true);
+      }
+    }
+  }, []);
+
+  const handleLoaderComplete = () => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('exammate_intro_seen', 'true');
+    }
+    setIsLoading(false);
+  };
   const [isSigningIn, setIsSigningIn] = useState<boolean>(false);
   const [authError, setAuthError] = useState<string>('');
   const [activeTab, setActiveTab] = useState<NavTab | 'details'>('home');
@@ -188,7 +204,7 @@ function AppContent() {
     <div className="min-h-screen bg-[#050508] bg-grid-pattern text-white flex">
       {/* HANDWRITTEN EXAM MATE INTRO LOADER */}
       <AnimatePresence>
-        {isLoading && <HandwrittenLoader onComplete={() => setIsLoading(false)} />}
+        {isLoading && <HandwrittenLoader onComplete={handleLoaderComplete} />}
       </AnimatePresence>
 
       {/* Desktop Sidebar Navigation */}

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { getSupabaseAdmin } from '@/lib/supabase/admin';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || '';
@@ -23,23 +24,24 @@ async function getAuthenticatedUser(req: Request) {
 
   if (!token) return { user: null, error: 'Missing access token' };
 
-  const supabase = createClient(supabaseUrl, supabaseKey, {
+  // Validate JWT token against Supabase Auth API
+  const authClient = createClient(supabaseUrl, supabaseKey, {
     global: { headers: { Authorization: `Bearer ${token}` } },
   });
 
-  const { data: { user }, error } = await supabase.auth.getUser(token);
+  const { data: { user }, error } = await authClient.auth.getUser(token);
   if (error || !user) {
     return { user: null, error: error?.message || 'Invalid access token' };
   }
 
-  return { user, supabase };
+  return { user };
 }
 
 export async function POST(req: Request) {
   try {
-    const { user, supabase, error: authErr } = await getAuthenticatedUser(req);
+    const { user, error: authErr } = await getAuthenticatedUser(req);
 
-    if (authErr || !user || !supabase) {
+    if (authErr || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -49,7 +51,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Invalid subscription payload' }, { status: 400 });
     }
 
-    const { data, error } = await supabase
+    // Use admin client server-side to perform database operation for verified user.id
+    const adminSupabase = getSupabaseAdmin();
+
+    const { data, error } = await adminSupabase
       .from('push_subscriptions')
       .upsert(
         {

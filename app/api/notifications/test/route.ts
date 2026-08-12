@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { sendWebPush } from '@/lib/push/pushService';
+import { getSupabaseAdmin } from '@/lib/supabase/admin';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || '';
@@ -24,28 +25,30 @@ async function getAuthenticatedUser(req: Request) {
 
   if (!token) return { user: null, error: 'Missing access token' };
 
-  const supabase = createClient(supabaseUrl, supabaseKey, {
+  const authClient = createClient(supabaseUrl, supabaseKey, {
     global: { headers: { Authorization: `Bearer ${token}` } },
   });
 
-  const { data: { user }, error } = await supabase.auth.getUser(token);
+  const { data: { user }, error } = await authClient.auth.getUser(token);
   if (error || !user) {
     return { user: null, error: error?.message || 'Invalid access token' };
   }
 
-  return { user, supabase };
+  return { user };
 }
 
 export async function POST(req: Request) {
   try {
-    const { user, supabase, error: authErr } = await getAuthenticatedUser(req);
+    const { user, error: authErr } = await getAuthenticatedUser(req);
 
-    if (authErr || !user || !supabase) {
+    if (authErr || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const adminSupabase = getSupabaseAdmin();
+
     // Fetch ONLY the authenticated user's own push subscriptions
-    const { data: subs, error: subErr } = await supabase
+    const { data: subs, error: subErr } = await adminSupabase
       .from('push_subscriptions')
       .select('*')
       .eq('user_id', user.id);
@@ -88,7 +91,7 @@ export async function POST(req: Request) {
 
     // Clean up expired subscriptions
     if (failedEndpoints.length > 0) {
-      await supabase
+      await adminSupabase
         .from('push_subscriptions')
         .delete()
         .in('endpoint', failedEndpoints);
