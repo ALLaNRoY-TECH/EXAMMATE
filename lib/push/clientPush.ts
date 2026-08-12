@@ -1,3 +1,5 @@
+import { supabase } from '@/lib/supabase/client';
+
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
@@ -7,6 +9,18 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
     outputArray[i] = rawData.charCodeAt(i);
   }
   return outputArray;
+}
+
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.access_token) {
+      return { Authorization: `Bearer ${session.access_token}` };
+    }
+  } catch (err) {
+    console.warn('[ClientPush] Could not retrieve auth session:', err);
+  }
+  return {};
 }
 
 export async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
@@ -58,9 +72,14 @@ export async function subscribeToPushNotifications(): Promise<{ success: boolean
     }
 
     const subJson = subscription.toJSON();
+    const authHeaders = await getAuthHeaders();
+
     const response = await fetch('/api/notifications/subscribe', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...authHeaders,
+      },
       body: JSON.stringify({
         endpoint: subJson.endpoint,
         keys: subJson.keys,
@@ -81,9 +100,14 @@ export async function subscribeToPushNotifications(): Promise<{ success: boolean
 
 export async function sendTestPushNotification(): Promise<{ success: boolean; error?: string }> {
   try {
+    const authHeaders = await getAuthHeaders();
+
     const res = await fetch('/api/notifications/test', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...authHeaders,
+      },
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed to send test notification');

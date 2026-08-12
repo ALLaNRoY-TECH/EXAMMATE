@@ -5,22 +5,46 @@ import { sendWebPush } from '@/lib/push/pushService';
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || '';
 
+async function getAuthenticatedUser(req: Request) {
+  const authHeader = req.headers.get('Authorization');
+  let token = authHeader ? authHeader.replace('Bearer ', '').trim() : null;
+
+  if (!token) {
+    const cookieHeader = req.headers.get('cookie') || '';
+    const match = cookieHeader.match(/sb-[a-z0-9]+-auth-token=([^;]+)/) || cookieHeader.match(/sb-access-token=([^;]+)/);
+    if (match) {
+      try {
+        const parsed = JSON.parse(decodeURIComponent(match[1]));
+        token = parsed.access_token || parsed[0] || match[1];
+      } catch {
+        token = match[1];
+      }
+    }
+  }
+
+  if (!token) return { user: null, error: 'Missing access token' };
+
+  const supabase = createClient(supabaseUrl, supabaseKey, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+  });
+
+  const { data: { user }, error } = await supabase.auth.getUser(token);
+  if (error || !user) {
+    return { user: null, error: error?.message || 'Invalid access token' };
+  }
+
+  return { user, supabase };
+}
+
 export async function POST(req: Request) {
   try {
-    const authHeader = req.headers.get('Authorization');
-    const token = authHeader ? authHeader.replace('Bearer ', '') : null;
+    const { user, supabase, error: authErr } = await getAuthenticatedUser(req);
 
-    const supabase = createClient(supabaseUrl, supabaseKey, {
-      global: { headers: token ? { Authorization: `Bearer ${token}` } : {} },
-    });
-
-    const { data: { user }, error: authErr } = await supabase.auth.getUser(token || undefined);
-
-    if (authErr || !user) {
+    if (authErr || !user || !supabase) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Fetch user's push subscriptions
+    // Fetch ONLY the authenticated user's own push subscriptions
     const { data: subs, error: subErr } = await supabase
       .from('push_subscriptions')
       .select('*')
